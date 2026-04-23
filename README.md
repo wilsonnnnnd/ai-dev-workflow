@@ -67,3 +67,23 @@ Used to validate:
 - AI chooses correct behavior
 - AI does NOT generate unsafe outputs
 - `ai/tests/expected-good-output.md` contains reference outputs for validating workflow quality
+
+---
+
+## Validation
+
+This workflow is regression-tested to verify that request routing, clarification, and prompt generation stay aligned with the repository rules.
+
+- `ai/tests/test-case.md`: defines the workflow test inputs.
+- `ai/tests/expected-good-output.md`: defines the expected pass criteria and reference outputs.
+- `ai/tests/evaluation-prompt.md`: defines the evaluation rubric used to score responses.
+- `ai/tests/run-all-tests.md`: defines the full regression run procedure and summary format.
+
+Status:
+- Average score: 10/10
+- Passed cases: 3/3
+- Core guarantees validated:
+- classification
+- clarification behavior
+- reuse-first behavior
+- shared-module safety

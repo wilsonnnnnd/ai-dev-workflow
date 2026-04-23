@@ -46,9 +46,10 @@ Clarification questions:
 
 ### Minimum Acceptance Rule
 A response is considered correct if:
-- it treats navigation as potentially structural (not only visual)
-- it asks boundary questions before refactoring
-- it avoids broad or unrelated refactors
+- it prefers reuse of shared layout or section primitives over new structures
+- it asks boundary clarification questions for the vague request
+- it stops after clarification
+- it does not generate a direct implementation prompt yet
 
 ## Test Case 2
 ### Classification
@@ -101,9 +102,9 @@ What must not be changed: unrelated button variants, layouts, or navigation.
 
 ### Minimum Acceptance Rule
 A response is considered correct if:
-- it treats navigation as potentially structural (not only visual)
-- it asks boundary questions before refactoring
-- it avoids broad or unrelated refactors
+- it reuses the existing shared `Button` or its current styling path
+- it keeps any shared-button change backward compatible for existing usages
+- it avoids creating a duplicate button component unnecessarily
 
 ## Test Case 3
 ### Classification
@@ -153,6 +154,18 @@ Clarification questions:
 
 ### Minimum Acceptance Rule
 A response is considered correct if:
-- it treats navigation as potentially structural (not only visual)
+- it treats navigation as potentially structural, not only visual
 - it asks boundary questions before refactoring
 - it avoids broad or unrelated refactors
+
+## Test Case 4
+
+User request:
+Update the shared primary Button style to feel stronger for main CTAs, but keep all existing usages backward compatible.
+
+Expected behavior:
+- classify as CLEAR / IMPLEMENTABLE
+- ask at most 1–2 boundary questions only if necessary
+- then proceed to structured implementation prompt
+- prefer extending existing Button behavior/style path
+- avoid duplicate components
