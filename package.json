@@ -10,7 +10,10 @@
         "ai-dev-workflow": "bin/cli.js"
     },
     "scripts": {
-        "release:check": "npm pack --dry-run"
+        "release:check": "npm pack --dry-run",
+        "changeset": "changeset",
+        "version-packages": "changeset version",
+        "release": "changeset publish"
     },
     "files": [
         "bin",
@@ -19,5 +22,8 @@
         "README.md",
         "LICENSE"
     ],
-    "license": "MIT"
+    "license": "MIT",
+    "devDependencies": {
+        "@changesets/cli": "^2.31.0"
+    }
 }

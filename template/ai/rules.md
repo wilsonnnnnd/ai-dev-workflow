@@ -29,6 +29,11 @@
 ## Dependency Rule
 - Do not add new dependencies unless clearly necessary
 
+## Documentation Alignment
+- For new features, add or update relevant documentation so the new behavior is discoverable
+- For changes to existing documented behavior, update the existing docs to match the latest implementation
+- Prefer updating an existing doc instead of creating a duplicate doc that overlaps in purpose
+
 ## Safety
 - Do not break existing functionality
 - Keep types valid

@@ -20,6 +20,7 @@ Behavior:
 - Prefer reuse over creation
 - Keep scope minimal
 - Protect shared modules
+- Include documentation updates when new or changed feature behavior should be reflected in docs
 
 If task scope is unclear or ambiguous:
 - do NOT generate the final prompt
@@ -33,6 +34,7 @@ The final prompt must include:
 - Reuse expectations
 - Constraints
 - Implementation direction
+- Documentation impact (if relevant)
 - Output requirements
 - Acceptance criteria
 - What must not be changed
@@ -42,3 +44,5 @@ Rules:
 - Do not skip clarification if ambiguity affects implementation
 - The output must be directly executable by an AI coding tool
 - Do not mix review behavior into this skill
+- For new features, include adding relevant documentation when users or developers would need it
+- For changes to existing documented behavior, prefer updating the existing doc instead of creating duplicate documentation

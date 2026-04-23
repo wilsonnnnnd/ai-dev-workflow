@@ -107,6 +107,7 @@ The prompt MUST include:
 - Files to inspect
 - Constraints
 - Implementation direction
+- Documentation impact (if relevant)
 - Acceptance criteria
 - What must NOT be changed
 
@@ -191,6 +192,7 @@ If the request is treated as CLEAR (including refinement cases):
 - Keep changes minimal and localized
 - Do NOT break existing functionality
 - Shared modules must remain backward compatible
+- Keep documentation aligned with new or changed feature behavior when relevant
 
 ---
 

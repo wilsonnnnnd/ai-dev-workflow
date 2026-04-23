@@ -169,3 +169,93 @@ Expected behavior:
 - then proceed to structured implementation prompt
 - prefer extending existing Button behavior/style path
 - avoid duplicate components
+
+### Expected Structure
+- The structured implementation prompt should still follow the standard prompt shape.
+- It may mention documentation impact only if the button behavior change affects existing docs.
+
+### Minimum Acceptance Rule
+- The response remains correct if it preserves the existing shared button path, keeps changes backward compatible, and does not add unnecessary documentation work.
+
+## Test Case 5
+### Classification
+Must be classified as `CLEAR / IMPLEMENTABLE`.
+
+### Expected behavior
+- Must route to `prompt-design`.
+- Must include documentation work because this is a new user-facing feature.
+- Must prefer updating existing docs such as README or command documentation instead of inventing duplicate docs.
+- Must keep the feature scope and documentation scope aligned.
+
+### Expected Structure
+- The structured prompt should include:
+  - Task goal
+  - Files to inspect first
+  - Constraints
+  - Implementation direction
+  - Documentation impact
+  - Acceptance criteria
+  - What must not be changed
+
+### Avoid
+- Do not treat documentation as optional when the new feature is user-facing.
+- Do not create duplicate docs if an existing doc can be updated.
+- Do not expand into unrelated scanner refactors.
+
+### Red Flags
+- Omits documentation updates entirely for the new feature.
+- Suggests creating a brand new doc without checking existing docs.
+- Expands beyond the requested feature and related documentation impact.
+
+### Example good output
+Task goal: add a new `scan --json` mode and document how users should invoke it.
+Files to inspect first: scan CLI entry, scan runtime, existing README or command docs.
+Constraints: keep CLI behavior backward compatible, reuse the existing scan path, do not add duplicate documentation.
+Implementation direction: extend the current scan command flow, then update the existing user-facing docs to include the new flag and examples.
+Documentation impact: update the existing README or command documentation to describe `scan --json`.
+Acceptance criteria: `scan --json` works, existing scan behavior keeps working, and users can discover the new mode from the docs.
+What must not be changed: unrelated scan behavior, command names, or duplicate docs.
+
+### Minimum Acceptance Rule
+A response is considered correct if:
+- it includes documentation updates for the new user-facing feature
+- it prefers updating an existing doc over adding duplicate docs
+- it keeps the implementation prompt focused on the feature and its documentation impact
+
+## Test Case 6
+### Classification
+Must be classified as `CLEAR / IMPLEMENTABLE` or a narrowly scoped `REVIEW REQUEST` if the request is framed as documentation alignment only.
+
+### Expected behavior
+- Must recognize that `backend-app` support already exists and the task is to align docs with current behavior.
+- Must prefer updating the existing documentation that describes supported project types.
+- Must avoid creating duplicate documentation for the same scanner capability.
+
+### Expected Structure
+- The response should identify the existing docs to inspect first.
+- If it produces a structured implementation prompt, it should include documentation impact explicitly.
+
+### Avoid
+- Do not ignore the documentation request because the feature already exists.
+- Do not propose a second parallel document for supported project types when an existing one can be updated.
+- Do not refactor unrelated scanner logic.
+
+### Red Flags
+- Treats this as purely code work and ignores docs.
+- Creates duplicate docs for supported project types.
+- Expands into unrelated scanner feature work.
+
+### Example good output
+Task goal: align the existing docs with the current `backend-app` scanner support.
+Files to inspect first: supported project type docs, README, scanner project type references.
+Constraints: keep changes localized, do not duplicate documentation, do not change unrelated scanner behavior.
+Implementation direction: update the existing supported-project-type documentation to include `backend-app` and match current scanner output.
+Documentation impact: revise the existing user-facing docs that describe scanner-supported project types.
+Acceptance criteria: docs mention `backend-app`, behavior descriptions match the implementation, and no duplicate documentation is introduced.
+What must not be changed: unrelated scanner logic or unrelated docs.
+
+### Minimum Acceptance Rule
+A response is considered correct if:
+- it updates existing documentation for the changed feature behavior
+- it avoids duplicate documentation
+- it keeps the task scoped to documentation alignment with current behavior
