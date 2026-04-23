@@ -75,6 +75,8 @@ After `init`, the target repository gets a plain-text workflow scaffold that hel
 
 The workflow is intentionally markdown-first so teams can inspect and adapt it over time.
 
+This repository is the package source. The full workflow experience is created in the target project after you run `init`, so evaluate the initialized output there rather than assuming this source repo is itself a complete example project.
+
 ## Package Layout
 
 The published package includes:
@@ -97,3 +99,4 @@ The published package includes:
 - `scan` is safe to re-run and only updates the AUTO-GENERATED section of `ai/project.md`
 - project-specific constraints should live under `## Manual Notes`
 - the initialized workflow is designed to stay simple, reviewable, and easy to version
+- lightweight release smoke test: run `npm pack --dry-run`, then try `npx ai-dev-workflow init` and `npx ai-dev-workflow scan` in a temporary target project

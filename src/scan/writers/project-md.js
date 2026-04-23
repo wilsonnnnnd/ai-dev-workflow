@@ -23,9 +23,10 @@ ${AUTO_GENERATED_END}
 
 ## Manual Notes
 
-- add business rules here
-- add architecture notes here
-- add constraints here
+- Reuse existing modules, components, and utilities before creating new structures or duplicate logic.
+- Keep changes localized and avoid broad edits to shared or global surfaces unless they are clearly required.
+- Preserve backward compatibility for shared code paths, public APIs, and common workflows where possible.
+- Treat config, environment behavior, routing, and schema changes as higher-risk areas that need extra caution.
 `;
         writeText(relativePath, initial);
         return;

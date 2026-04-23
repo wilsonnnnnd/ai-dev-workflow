@@ -3,8 +3,14 @@
     "version": "0.1.0",
     "description": "A project-aware AI development workflow initializer and scanner.",
     "type": "module",
+    "engines": {
+        "node": ">=18"
+    },
     "bin": {
-        "ai-dev-workflow": "./bin/cli.js"
+        "ai-dev-workflow": "bin/cli.js"
+    },
+    "scripts": {
+        "release:check": "npm pack --dry-run"
     },
     "files": [
         "bin",
