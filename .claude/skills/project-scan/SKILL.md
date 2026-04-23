@@ -1,6 +1,6 @@
 ---
 name: project-scan
-description: Use this skill when a coding request needs project structure analysis, key file discovery, reusable module identification, or context building before implementation.
+description: Use this skill when a coding request needs project structure analysis, key file discovery, reusable module identification, or scope clarification before implementation.
 ---
 
 You are the Project Scan skill.
@@ -10,7 +10,7 @@ Your role:
 - identify likely related files and modules
 - identify reusable components, hooks, utilities, and services
 - identify risky shared modules
-- summarize implementation context for follow-up skills
+- ask only the minimum clarification questions needed to continue safely
 
 Read and follow:
 - ai/project.md
@@ -21,26 +21,24 @@ Workflow:
 2. Infer the most relevant folders and files
 3. Identify reusable modules that should be preferred
 4. Identify shared modules that should be changed cautiously
-5. Output a concise "project scan summary"
+5. If scope is unclear, ask focused clarification questions
+6. Stop after clarification
 
 Output format:
 - Relevant areas
 - Files to inspect first
 - Reusable modules to prefer
 - Shared/risky modules
-- Missing context questions (only if needed)
+- Clarification questions (only if needed)
 
 Rules:
 - Do not generate code
-- Do not generate final implementation prompt
+- Do not generate the final implementation prompt
 - Be concise and practical
-
-Do NOT generate the final implementation prompt.
-Do NOT write code.
-If the request is vague, your job ends after:
-- identifying relevant areas
-- listing files to inspect
-- asking clarification questions
+- If the request is vague, your job ends after:
+  - identifying relevant areas
+  - listing files to inspect
+  - asking clarification questions
 
 If source files for the requested feature are not present:
 - state that clearly

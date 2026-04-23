@@ -1,29 +1,27 @@
 Load:
 - ai/project.md
 - ai/rules.md
-
-# Smart Router
-
-Before responding, determine request type:
-
-- If the request is vague, exploratory, or structurally broad:
-  → act as project-scan
-  → identify relevant files/modules
-  → ask 3–6 focused clarification questions
-  → stop after clarification
-
-- If the request is clear and implementation-ready:
-  → act as prompt-design
-  → generate one structured implementation prompt
-
-- If a prompt or plan already exists and needs validation:
-  → act as prompt-review
-  → refine and improve the prompt only
+- skill.md
 
 # Task
 
 My request:
 [WRITE YOUR REQUIREMENT HERE]
+
+# Instructions
+
+Use the controller in `skill.md` to decide the correct path.
+
+- If the request is vague or high-level:
+  - identify relevant areas
+  - ask focused clarification questions
+  - stop after clarification
+
+- If the request is clear and implementation-ready:
+  - generate one structured implementation prompt
+
+- If a prompt or plan already exists:
+  - review and refine it only
 
 # Constraints
 
@@ -37,4 +35,4 @@ My request:
 
 - Do not write code unless explicitly requested
 - Do not skip clarification for vague requests
-- Output must match the selected skill responsibility
+- Output must match the selected behavior

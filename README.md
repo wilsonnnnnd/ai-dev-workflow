@@ -1,52 +1,3 @@
-# structured-ai-dev-workflow
-
-A lightweight, project-aware AI development workflow that turns vague coding requests into structured, safe, and executable implementation tasks.
-
-Designed for real-world use with:
-- GitHub Copilot
-- OpenAI Codex / ChatGPT
-- Trae
-- Claude / skill-based systems
-
----
-
-## ✨ Why
-
-AI coding tools are powerful, but they often:
-
-- don’t understand your project structure
-- ignore reusable components and utilities
-- break shared modules
-- generate inconsistent UI/code patterns
-- skip clarification and jump straight to code
-
-This project solves that by introducing a **structured AI workflow system**:
-
-👉 instead of writing prompts  
-👉 you enforce a development process
-
----
-
-## 🧠 Core Idea
-
-Every request goes through a controlled pipeline:
-User Request
-↓
-Project Context (what exists)
-↓
-Engineering Rules (what is allowed)
-↓
-Skill Router (what to do)
-↓
-Skill Execution
-↓
-Prompt / Plan Output
-↓
-AI Coding Tool (Copilot / Codex / Trae)
-
-
----
-
 ## 🧩 Architecture
 
 ### 1. Project Context (`/ai/project.md`)
@@ -72,22 +23,36 @@ Defines:
 
 ---
 
-### 3. Skill System (`/.claude/skills/`)
-Split into:
+### 3. Controller (`/skill.md`)
+Acts as the global controller / router.
 
-- `project-scan` → understand project structure
-- `prompt-design` → generate implementation prompt
-- `prompt-review` → enforce quality & constraints
+Responsibilities:
+- classify requests
+- decide whether to scan, design, or review
+- enforce clarification before execution
+- prevent direct code generation for vague requests
 
-👉 answers: *"how should AI behave?"*
+👉 answers: *"what should happen first?"*
 
 ---
 
-### 4. Task Entry (`/ai/task-entry.md`)
+### 4. Skill Executors (`/.claude/skills/`)
+Split into:
+
+- `project-scan` → understand project structure and clarify scope
+- `prompt-design` → generate implementation prompt
+- `prompt-review` → enforce quality & constraints
+
+👉 answers: *"which specialized behavior should run?"*
+
+---
+
+### 5. Task Entry (`/ai/task-entry.md`)
 The entry point for every request.
 
 Includes:
-- smart routing logic
+- task input
+- controller usage
 - constraints
 - output rules
 
@@ -95,11 +60,9 @@ Includes:
 
 ---
 
-### 5. Testing (`/ai/tests/test-case.md`)
+### 6. Testing (`/ai/tests/test-case.md`)
 Used to validate:
 
 - AI follows rules
-- AI chooses correct skill
+- AI chooses correct behavior
 - AI does NOT generate unsafe outputs
-
----
