@@ -8,6 +8,7 @@ import {
 } from "./detectors/reusable-system.js";
 import { detectRiskAreas } from "./detectors/risk-areas.js";
 import { CONTEXT_DIR, CONTEXT_PROJECT_MD_PATH } from "./constants.js";
+import { getContextStatus } from "./context.js";
 import {
     getClosestStructurePath,
     detectStructure,
@@ -332,8 +333,33 @@ function printSkippedUpdateResult() {
     console.log(`* Add AUTO-GENERATED markers or regenerate ${CONTEXT_PROJECT_MD_PATH}.`);
 }
 
+function printContextStatusError(status) {
+    if (status.reason === "not-initialized") {
+        console.log("\u2716 Project not initialized");
+        console.log(`Missing: ${CONTEXT_DIR}/`);
+        console.log("Run: ai-dev-workflow init");
+        return;
+    }
+
+    console.log("\u2716 Project context is incomplete");
+    console.log("Run: ai-dev-workflow scan --auto");
+}
+
 export async function runScan(options = {}) {
     const mode = options.mode || "normal";
+    const contextStatus = getContextStatus();
+
+    if (!contextStatus.ok) {
+        printContextStatusError(contextStatus);
+        process.exitCode = 1;
+        return {
+            changed: false,
+            updatedFiles: [],
+            incomplete: contextStatus.reason === "incomplete",
+            initialized: contextStatus.reason !== "not-initialized",
+        };
+    }
+
     const scanData = buildProjectScanData();
     const content = generateProjectMdContent(scanData);
 

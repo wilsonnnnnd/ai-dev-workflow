@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { main as runCliMain } from "../bin/cli.js";
 import { runInit } from "../bin/init.js";
 import { runScan } from "../bin/scan.js";
 import { PROJECT_TYPES } from "../src/scan/constants.js";
@@ -14,6 +15,30 @@ function writeFile(relativePath, content = "") {
     const fullPath = path.resolve(process.cwd(), relativePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, content, "utf-8");
+}
+
+function writeContextProject(content) {
+    writeFile(".aidw/project.md", content);
+    writeFile(".aidw/meta.json", JSON.stringify({ version: 1 }, null, 4) + "\n");
+    writeFile(
+        ".aidw/scan/last.json",
+        JSON.stringify({ status: "not-run" }, null, 4) + "\n",
+    );
+}
+
+async function assertIncompleteScan(options = {}) {
+    process.exitCode = 0;
+
+    const { output, result } = await withCapturedConsole(() => runScan(options));
+
+    assert.equal(process.exitCode, 1);
+    assert.equal(result.incomplete, true);
+    assert.equal(
+        output.join("\n"),
+        "\u2716 Project context is incomplete\nRun: ai-dev-workflow scan --auto",
+    );
+
+    process.exitCode = 0;
 }
 
 async function withTempProject(callback) {
@@ -134,7 +159,7 @@ test("CLI behavior", async (t) => {
             assert.ok(result.created.includes(".aidw/project.md"));
             assert.equal(
                 output.join("\n"),
-                "\u2714 Init completed\nCreated: .aidw/\n(ai-dev-workflow project context)\nNext:\n* Run ai-dev-workflow scan",
+                "\u2714 Init completed\nCreated:\n* .aidw/\n  (ai-dev-workflow project context)\n\nNext:\n* Run ai-dev-workflow scan",
             );
         });
     });
@@ -156,8 +181,7 @@ test("CLI behavior", async (t) => {
             assert.deepEqual(
                 JSON.parse(fs.readFileSync(".aidw/meta.json", "utf-8")),
                 {
-                    schemaVersion: 1,
-                    tool: "ai-dev-workflow",
+                    version: 1,
                 },
             );
             assert.deepEqual(
@@ -169,10 +193,10 @@ test("CLI behavior", async (t) => {
             assert.ok(result.updated.includes(".aidw/project.md"));
             assert.ok(result.updated.includes(".aidw/meta.json"));
             assert.ok(result.updated.includes(".aidw/scan/last.json"));
-            assert.equal(
-                output.join("\n"),
-                "\u2714 Init completed\nUpdated: .aidw/\n(ai-dev-workflow project context)\n\nNext:\n* Run ai-dev-workflow scan",
-            );
+            assert.match(output.join("\n"), /Updated:/);
+            assert.match(output.join("\n"), /\* \.aidw\/project\.md/);
+            assert.match(output.join("\n"), /\* \.aidw\/meta\.json/);
+            assert.match(output.join("\n"), /\* \.aidw\/scan\/last\.json/);
         });
     });
 
@@ -189,10 +213,80 @@ test("CLI behavior", async (t) => {
         });
     });
 
+    await t.test("scan reports not initialized when context directory is missing", async () => {
+        await withTempProject(async () => {
+            process.exitCode = 0;
+
+            const { output, result } = await withCapturedConsole(() => runScan());
+
+            assert.equal(process.exitCode, 1);
+            assert.equal(result.initialized, false);
+            assert.equal(
+                output.join("\n"),
+                "\u2716 Project not initialized\nMissing: .aidw/\nRun: ai-dev-workflow init",
+            );
+
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("empty context directory is incomplete", async () => {
+        await withTempProject(async () => {
+            fs.mkdirSync(".aidw", { recursive: true });
+
+            await assertIncompleteScan();
+        });
+    });
+
+    await t.test("deleted project context file is incomplete", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            fs.unlinkSync(".aidw/project.md");
+
+            await assertIncompleteScan();
+        });
+    });
+
+    await t.test("invalid meta json is incomplete", async () => {
+        await withTempProject(async () => {
+            writeContextProject("# Project Context\n");
+            writeFile(".aidw/meta.json", "{not-json}\n");
+
+            await assertIncompleteScan({ mode: "check" });
+        });
+    });
+
+    await t.test("missing meta version is incomplete", async () => {
+        await withTempProject(async () => {
+            writeContextProject("# Project Context\n");
+            writeFile(".aidw/meta.json", "{}\n");
+
+            await assertIncompleteScan({ mode: "auto" });
+        });
+    });
+
+    await t.test("missing scan last file is incomplete", async () => {
+        await withTempProject(async () => {
+            writeContextProject("# Project Context\n");
+            fs.unlinkSync(".aidw/scan/last.json");
+
+            await assertIncompleteScan();
+        });
+    });
+
+    await t.test("incomplete context is reported for every scan mode", async () => {
+        for (const mode of ["normal", "check", "auto"]) {
+            await withTempProject(async () => {
+                fs.mkdirSync(".aidw", { recursive: true });
+
+                await assertIncompleteScan({ mode });
+            });
+        }
+    });
+
     await t.test("scan updates generated section and preserves manual content", async () => {
         await withTempProject(async () => {
-            writeFile(
-                ".aidw/project.md",
+            writeContextProject(
                 `# Project Context
 
 <!-- AUTO-GENERATED:START -->
@@ -223,8 +317,7 @@ old generated content
     await t.test("scan check reports stale content without writing", async () => {
         await withTempProject(async () => {
             process.exitCode = 0;
-            writeFile(
-                ".aidw/project.md",
+            writeContextProject(
                 `# Project Context
 
 <!-- AUTO-GENERATED START -->
@@ -254,7 +347,7 @@ old generated content
     await t.test("scan check reports missing markers", async () => {
         await withTempProject(async () => {
             process.exitCode = 0;
-            writeFile(".aidw/project.md", "# Project Context\n\nmanual only\n");
+            writeContextProject("# Project Context\n\nmanual only\n");
             writeFile("package.json", JSON.stringify({ name: "scan-target" }));
             writeFile("bin/cli.js", "#!/usr/bin/env node\n");
 
@@ -275,8 +368,7 @@ old generated content
 
     await t.test("scan auto updates changed generated content", async () => {
         await withTempProject(async () => {
-            writeFile(
-                ".aidw/project.md",
+            writeContextProject(
                 `# Project Context
 
 <!-- AUTO-GENERATED START -->
@@ -302,6 +394,7 @@ old generated content
 
     await t.test("default scan prints structured output", async () => {
         await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
             writeFile("package.json", JSON.stringify({ name: "scan-target" }));
             writeFile("bin/cli.js", "#!/usr/bin/env node\n");
 
@@ -319,6 +412,7 @@ old generated content
     await t.test("scan check returns up to date after scan", async () => {
         await withTempProject(async () => {
             process.exitCode = 0;
+            await withMutedConsole(() => runInit());
             writeFile("package.json", JSON.stringify({ name: "scan-target" }));
             writeFile("bin/cli.js", "#!/usr/bin/env node\n");
 
@@ -340,6 +434,7 @@ old generated content
 
     await t.test("scan auto prints no changes when up to date", async () => {
         await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
             writeFile("package.json", JSON.stringify({ name: "scan-target" }));
             writeFile("bin/cli.js", "#!/usr/bin/env node\n");
 
@@ -359,6 +454,7 @@ old generated content
 
     await t.test("default scan prints no changes when up to date", async () => {
         await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
             writeFile("package.json", JSON.stringify({ name: "scan-target" }));
             writeFile("bin/cli.js", "#!/usr/bin/env node\n");
 
@@ -370,6 +466,29 @@ old generated content
             assert.deepEqual(result.updatedFiles, []);
             assert.match(output.join("\n"), /Project scan completed/);
             assert.match(output.join("\n"), /Changes:\n\* No changes/);
+        });
+    });
+
+    await t.test("fresh user flow works through CLI parser from a temporary project path", async () => {
+        await withTempProject(async () => {
+            process.exitCode = 0;
+
+            const init = await withCapturedConsole(() => runCliMain(["init"]));
+            const scan = await withCapturedConsole(() => runCliMain(["scan"]));
+            const check = await withCapturedConsole(() =>
+                runCliMain(["scan", "--check"]),
+            );
+            const combinedOutput = [
+                init.output.join("\n"),
+                scan.output.join("\n"),
+                check.output.join("\n"),
+            ].join("\n");
+
+            assert.equal(process.exitCode, 0);
+            assert.ok(fs.existsSync(".aidw"));
+            assert.ok(fs.existsSync(".aidw/project.md"));
+            assert.match(combinedOutput, /\.aidw\//);
+            assert.doesNotMatch(combinedOutput, /ai\//);
         });
     });
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { runInit } from "./init.js";
 import { runScan } from "./scan.js";
 import { CONTEXT_PROJECT_MD_PATH } from "../src/scan/constants.js";
@@ -37,8 +37,7 @@ function getVersion() {
     return pkg.version;
 }
 
-async function main() {
-    const args = process.argv.slice(2);
+export async function main(args = process.argv.slice(2)) {
     const command = args.find((arg) => !arg.startsWith("--")) ?? "init";
 
     if (args.includes("--help")) {
@@ -81,7 +80,9 @@ async function main() {
     process.exit(1);
 }
 
-main().catch((error) => {
-    console.error("Unexpected error:", error);
-    process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+    main().catch((error) => {
+        console.error("Unexpected error:", error);
+        process.exit(1);
+    });
+}

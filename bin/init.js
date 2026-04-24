@@ -62,15 +62,22 @@ function copyDir(src, dest, options, results) {
 }
 
 function printList(title, items) {
-    console.log(`${title}:`);
-
     if (items.length === 0) {
-        console.log("* none");
         return;
     }
 
+    console.log(`${title}:`);
+
     for (const item of items) {
-        console.log(`* ${item}`);
+        if (typeof item === "string") {
+            console.log(`* ${item}`);
+            continue;
+        }
+
+        console.log(`* ${item.label}`);
+        for (const note of item.notes) {
+            console.log(`  ${note}`);
+        }
     }
 }
 
@@ -83,17 +90,36 @@ function printNext(options = {}) {
     console.log("* Run ai-dev-workflow scan");
 }
 
-function printSimpleCompletedInit() {
-    console.log("\u2714 Init completed");
-    console.log(`Created: ${CONTEXT_DIR}/`);
-    console.log("(ai-dev-workflow project context)");
-    printNext({ leadingBlank: false });
+function getDisplayCreatedItems(results) {
+    if (results.createdContextDir) {
+        return [
+            {
+                label: `${CONTEXT_DIR}/`,
+                notes: ["(ai-dev-workflow project context)"],
+            },
+        ];
+    }
+
+    return results.created;
 }
 
-function printForceCompletedInit() {
+function printInitResult(results) {
     console.log("\u2714 Init completed");
-    console.log(`Updated: ${CONTEXT_DIR}/`);
-    console.log("(ai-dev-workflow project context)");
+
+    const sections = [
+        ["Created", getDisplayCreatedItems(results)],
+        ["Updated", results.updated],
+        ["Skipped", results.skipped],
+    ].filter(([, items]) => items.length > 0);
+
+    sections.forEach(([title, items], index) => {
+        if (index > 0) {
+            console.log("");
+        }
+
+        printList(title, items);
+    });
+
     printNext();
 }
 
@@ -103,8 +129,10 @@ export async function runInit(options = {}) {
         force: Boolean(options.force),
         targetDir: options.targetDir || process.cwd(),
     };
+    const contextDirPath = path.resolve(initOptions.targetDir, CONTEXT_DIR);
     const results = {
         created: [],
+        createdContextDir: !fs.existsSync(contextDirPath),
         updated: [],
         skipped: [],
     };
@@ -114,7 +142,7 @@ export async function runInit(options = {}) {
     if (initOptions.dryRun) {
         console.log("\u2714 Init completed");
         console.log("");
-        printList("Would create", results.created);
+        printList("Would create", getDisplayCreatedItems(results));
         console.log("");
         printList("Would update", results.updated);
         console.log("");
@@ -123,18 +151,7 @@ export async function runInit(options = {}) {
         return results;
     }
 
-    if (initOptions.force) {
-        printForceCompletedInit();
-    } else if (results.skipped.length === 0) {
-        printSimpleCompletedInit();
-    } else {
-        console.log("\u2714 Init completed");
-        console.log("");
-        printList("Created", results.created);
-        console.log("");
-        printList("Skipped", results.skipped);
-        printNext();
-    }
+    printInitResult(results);
 
     return results;
 }

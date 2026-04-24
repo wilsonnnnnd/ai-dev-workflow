@@ -4,6 +4,7 @@ export const LEGACY_AUTO_GENERATED_START = "<!-- AUTO-GENERATED:START -->";
 export const LEGACY_AUTO_GENERATED_END = "<!-- AUTO-GENERATED:END -->";
 
 export const CONTEXT_DIR = ".aidw";
+export const CONTEXT_VERSION = 1;
 export const CONTEXT_PROJECT_MD_PATH = `${CONTEXT_DIR}/project.md`;
 export const CONTEXT_META_PATH = `${CONTEXT_DIR}/meta.json`;
 export const CONTEXT_SCAN_LAST_PATH = `${CONTEXT_DIR}/scan/last.json`;
