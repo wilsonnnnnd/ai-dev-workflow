@@ -15,6 +15,9 @@
         "version-packages": "changeset version",
         "release": "changeset publish"
     },
+    "publishConfig": {
+        "access": "public"
+    },
     "files": [
         "bin",
         "src",
