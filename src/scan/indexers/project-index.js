@@ -1,13 +1,25 @@
 import fs from "fs";
 import path from "path";
 import {
+    CONTEXT_AI_PATH,
     CONTEXT_INDEX_DIR,
+    CONTEXT_INDEX_ENTRYPOINTS_PATH,
+    CONTEXT_INDEX_FILE_GROUPS_PATH,
     CONTEXT_INDEX_FILES_PATH,
+    CONTEXT_INDEX_SUMMARY_PATH,
     CONTEXT_INDEX_SYMBOLS_PATH,
+    CONTEXT_TASKS_DIR,
+    CONTEXT_TASKS_PATH,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_FILE_GROUPS,
+    MAX_INDEX_FILES,
+    MAX_INDEX_SYMBOLS,
+    MAX_TASKS,
 } from "../constants.js";
 import {
     ensureDir,
     exists,
+    readJson,
     readText,
     resolveFromProject,
     statSafe,
@@ -25,6 +37,26 @@ const SKIPPED_DIRS = new Set([
     "build",
     "coverage",
 ]);
+
+const AI_INSTRUCTIONS = `# AI Navigation
+
+- Read \`.aidw/project.md\` first.
+- Use \`.aidw/index/files.json\` to locate important files.
+- Use \`.aidw/index/symbols.json\` to locate functions/classes/components.
+- Use \`.aidw/index/entrypoints.json\` to find where execution starts.
+- Use \`.aidw/context/tasks.json\` to find task-to-file mappings.
+- Preserve structured CLI output.
+- Do not reintroduce ai/ support.
+- Do not modify unrelated behavior.
+`;
+
+function trimDescription(description) {
+    if (description.length <= MAX_DESCRIPTION_LENGTH) {
+        return description;
+    }
+
+    return description.slice(0, MAX_DESCRIPTION_LENGTH - 1).trimEnd() + ".";
+}
 
 function toProjectPath(fullPath) {
     return path.relative(process.cwd(), fullPath).replaceAll(path.sep, "/");
@@ -94,6 +126,50 @@ function classifyFile(filePath) {
     return "other";
 }
 
+function typeRank(type) {
+    return {
+        entry: 0,
+        config: 1,
+        source: 2,
+        test: 3,
+        other: 4,
+    }[type] ?? 4;
+}
+
+function filePriority(filePath) {
+    const type = classifyFile(filePath);
+
+    if (type === "entry") {
+        return 0;
+    }
+    if (type === "config") {
+        return 1;
+    }
+    if (filePath === "src/scan/index.js" || filePath === "src/scan/context.js") {
+        return 2;
+    }
+    if (filePath.startsWith("src/")) {
+        return 3;
+    }
+    if (
+        filePath.startsWith("api/") ||
+        filePath.startsWith("routes/") ||
+        filePath.startsWith("services/") ||
+        filePath.startsWith("components/") ||
+        filePath.startsWith("src/api/") ||
+        filePath.startsWith("src/routes/") ||
+        filePath.startsWith("src/services/") ||
+        filePath.startsWith("src/components/")
+    ) {
+        return 4;
+    }
+    if (type === "test") {
+        return 5;
+    }
+
+    return 6;
+}
+
 function describeFile(filePath, type) {
     if (filePath === "bin/cli.js") {
         return "CLI entry point that parses commands and flags.";
@@ -112,7 +188,11 @@ function describeFile(filePath, type) {
     }
 
     if (filePath.endsWith("context.js")) {
-        return "Validates the .aidw project context structure.";
+        return "Validates .aidw project context files.";
+    }
+
+    if (filePath.includes("/indexers/")) {
+        return "Generates structured AI retrieval indexes.";
     }
 
     if (filePath.includes("/detectors/")) {
@@ -144,6 +224,26 @@ function getUpdatedAt(filePath) {
     return (stat?.mtime ?? new Date(0)).toISOString();
 }
 
+function getLatestUpdatedAt(filePaths) {
+    const latest = filePaths.reduce((latestTime, filePath) => {
+        const mtime = statSafe(filePath)?.mtime?.getTime() ?? 0;
+
+        return Math.max(latestTime, mtime);
+    }, 0);
+
+    return new Date(latest).toISOString();
+}
+
+function fileConfidence(type) {
+    return {
+        entry: 0.9,
+        config: 0.85,
+        source: 0.8,
+        test: 0.75,
+        other: 0.55,
+    }[type] ?? 0.5;
+}
+
 function isImportantFile(filePath) {
     const type = classifyFile(filePath);
     const extension = path.extname(filePath);
@@ -159,17 +259,25 @@ function isImportantFile(filePath) {
 export function buildFileIndex() {
     return listFiles()
         .filter(isImportantFile)
-        .sort()
         .map((filePath) => {
             const type = classifyFile(filePath);
 
             return {
                 path: filePath,
                 type,
-                description: describeFile(filePath, type).slice(0, 120),
+                description: trimDescription(describeFile(filePath, type)),
                 updatedAt: getUpdatedAt(filePath),
+                confidence: fileConfidence(type),
+                source: "heuristic",
             };
-        });
+        })
+        .sort(
+            (a, b) =>
+                filePriority(a.path) - filePriority(b.path) ||
+                typeRank(a.type) - typeRank(b.type) ||
+                a.path.localeCompare(b.path),
+        )
+        .slice(0, MAX_INDEX_FILES);
 }
 
 function isComponentName(name) {
@@ -193,6 +301,10 @@ function describeSymbol(symbol) {
         return "Builds structured scan data.";
     }
 
+    if (symbol.name.startsWith("update")) {
+        return "Updates generated project context files.";
+    }
+
     if (symbol.type === "class") {
         return "Defines a reusable class.";
     }
@@ -211,13 +323,17 @@ function addSymbol(symbols, filePath, fileUpdatedAt, match, type, exported) {
         return;
     }
 
+    const resolvedType = type === "function" && isComponentName(name) ? "component" : type;
+
     symbols.push({
         name,
-        type: type === "function" && isComponentName(name) ? "component" : type,
+        type: resolvedType,
         file: filePath,
-        description: describeSymbol({ name, type }).slice(0, 120),
+        description: trimDescription(describeSymbol({ name, type: resolvedType })),
         exported,
         updatedAt: fileUpdatedAt,
+        confidence: exported ? 0.8 : 0.65,
+        source: "regex",
     });
 }
 
@@ -280,11 +396,240 @@ export function buildSymbolIndex() {
         })
         .sort()
         .flatMap(extractSymbolsFromFile)
-        .sort((a, b) => `${a.file}:${a.name}`.localeCompare(`${b.file}:${b.name}`));
+        .sort((a, b) => {
+            if (a.exported !== b.exported) {
+                return a.exported ? -1 : 1;
+            }
+
+            return `${a.file}:${a.name}`.localeCompare(`${b.file}:${b.name}`);
+        })
+        .slice(0, MAX_INDEX_SYMBOLS);
 }
 
-function writeJsonIfChanged(relativePath, data) {
-    const nextContent = `${JSON.stringify(data, null, 4)}\n`;
+function groupPathForFile(filePath) {
+    const parts = filePath.split("/");
+
+    if (parts.length === 1) {
+        return ".";
+    }
+
+    if (parts[0] === "src" && parts.length >= 3) {
+        return parts.slice(0, 2).join("/");
+    }
+
+    if (["api", "routes", "services", "components", "test", "tests", "bin"].includes(parts[0])) {
+        return parts[0];
+    }
+
+    return parts[0];
+}
+
+function summarizeGroup(groupPath) {
+    if (groupPath === "bin") {
+        return "CLI entrypoints and command wrappers.";
+    }
+    if (groupPath === "src/scan") {
+        return "Project scanning, context validation, and index generation logic.";
+    }
+    if (groupPath.startsWith("src/")) {
+        return "Source modules for application behavior.";
+    }
+    if (groupPath === "test" || groupPath === "tests") {
+        return "Automated tests and regression coverage.";
+    }
+    if (groupPath.includes("components")) {
+        return "Reusable UI components.";
+    }
+    if (groupPath.includes("api") || groupPath.includes("routes")) {
+        return "API and route handling code.";
+    }
+    if (groupPath.includes("services")) {
+        return "Service-layer and business logic modules.";
+    }
+    if (groupPath === ".") {
+        return "Repository root files and package metadata.";
+    }
+
+    return "Project files grouped by directory.";
+}
+
+function groupPriority(groupPath) {
+    if (groupPath === "bin") {
+        return 0;
+    }
+    if (groupPath === ".") {
+        return 1;
+    }
+    if (groupPath === "src" || groupPath.startsWith("src/")) {
+        return 2;
+    }
+    if (
+        groupPath.includes("api") ||
+        groupPath.includes("routes") ||
+        groupPath.includes("services") ||
+        groupPath.includes("components")
+    ) {
+        return 3;
+    }
+    if (groupPath === "test" || groupPath === "tests") {
+        return 4;
+    }
+
+    return 5;
+}
+
+export function buildFileGroupIndex(allFiles = listFiles()) {
+    const groups = new Map();
+
+    for (const filePath of allFiles.filter(isImportantFile)) {
+        const groupPath = groupPathForFile(filePath);
+        const group = groups.get(groupPath) ?? {
+            path: groupPath,
+            files: [],
+        };
+
+        group.files.push(filePath);
+        groups.set(groupPath, group);
+    }
+
+    return [...groups.values()]
+        .map((group) => {
+            const keyFiles = group.files
+                .sort((a, b) => filePriority(a) - filePriority(b) || a.localeCompare(b))
+                .slice(0, 3);
+
+            return {
+                path: group.path,
+                fileCount: group.files.length,
+                summary: trimDescription(summarizeGroup(group.path)),
+                keyFiles,
+            };
+        })
+        .filter((group) => group.keyFiles.every((filePath) => exists(filePath)))
+        .sort(
+            (a, b) =>
+                groupPriority(a.path) - groupPriority(b.path) ||
+                b.fileCount - a.fileCount ||
+                a.path.localeCompare(b.path),
+        )
+        .slice(0, MAX_FILE_GROUPS);
+}
+
+function readPackageJson() {
+    return readJson("package.json") ?? {};
+}
+
+function normalizeBinEntries(bin) {
+    if (!bin) {
+        return [];
+    }
+
+    if (typeof bin === "string") {
+        return [["package", bin]];
+    }
+
+    if (typeof bin === "object" && !Array.isArray(bin)) {
+        return Object.entries(bin);
+    }
+
+    return [];
+}
+
+export function buildEntrypointIndex() {
+    const packageJson = readPackageJson();
+    const byPath = new Map();
+
+    for (const [command, filePath] of normalizeBinEntries(packageJson.bin)) {
+        const normalizedPath = String(filePath).replaceAll("\\", "/");
+
+        if (!exists(normalizedPath)) {
+            continue;
+        }
+
+        byPath.set(normalizedPath, {
+            name: "CLI entry",
+            path: normalizedPath,
+            command,
+            description: trimDescription("Parses CLI commands and dispatches init/scan."),
+            confidence: 0.9,
+            source: "package.json",
+        });
+    }
+
+    for (const filePath of listFiles().filter((candidate) => candidate.startsWith("bin/"))) {
+        if (!SOURCE_EXTENSIONS.has(path.extname(filePath)) || !exists(filePath)) {
+            continue;
+        }
+
+        if (!byPath.has(filePath)) {
+            byPath.set(filePath, {
+                name: "CLI entry",
+                path: filePath,
+                command: path.basename(filePath, path.extname(filePath)),
+                description: trimDescription("Likely CLI entry point under bin/."),
+                confidence: 0.7,
+                source: "heuristic",
+            });
+        }
+    }
+
+    return [...byPath.values()].sort((a, b) => b.confidence - a.confidence || a.path.localeCompare(b.path));
+}
+
+function existingFiles(filePaths) {
+    return filePaths.filter((filePath) => exists(filePath));
+}
+
+export function buildTaskMap() {
+    const taskCandidates = [
+        {
+            task: "change init behavior",
+            files: ["bin/init.js", "bin/cli.js", "test/cli.test.js"],
+            notes: "Keep structured CLI output and update tests.",
+            confidence: 0.8,
+            source: "heuristic",
+        },
+        {
+            task: "change scan behavior",
+            files: ["src/scan/index.js", "bin/scan.js", "test/cli.test.js"],
+            notes: "Preserve scan output format and exit-code behavior.",
+            confidence: 0.8,
+            source: "heuristic",
+        },
+        {
+            task: "change context validation",
+            files: ["src/scan/context.js", "src/scan/constants.js", "test/cli.test.js"],
+            notes: "Keep .aidw completeness checks focused on required files.",
+            confidence: 0.75,
+            source: "heuristic",
+        },
+        {
+            task: "change project index generation",
+            files: ["src/scan/indexers/project-index.js", "src/scan/index.js", "test/cli.test.js"],
+            notes: "Keep indexes bounded, dependency-free, and based on current filesystem state.",
+            confidence: 0.8,
+            source: "heuristic",
+        },
+        {
+            task: "update project documentation",
+            files: ["README.md", "AGENTS.md", "skill.md"],
+            notes: "Keep user-facing paths aligned with .aidw/.",
+            confidence: 0.65,
+            source: "heuristic",
+        },
+    ];
+
+    return taskCandidates
+        .map((candidate) => ({
+            ...candidate,
+            files: existingFiles(candidate.files),
+            notes: trimDescription(candidate.notes),
+        }))
+        .filter((candidate) => candidate.files.length > 0)
+        .slice(0, MAX_TASKS);
+}
+
+function writeIfChanged(relativePath, nextContent) {
     const currentContent = exists(relativePath) ? readText(relativePath) : null;
 
     if (currentContent === nextContent) {
@@ -295,11 +640,44 @@ function writeJsonIfChanged(relativePath, data) {
     return true;
 }
 
+function writeJsonIfChanged(relativePath, data) {
+    return writeIfChanged(relativePath, `${JSON.stringify(data, null, 4)}\n`);
+}
+
 export function updateProjectIndex() {
     ensureDir(CONTEXT_INDEX_DIR);
+    ensureDir(CONTEXT_TASKS_DIR);
+
+    const allFiles = listFiles().sort();
+    const allImportantFiles = allFiles.filter(isImportantFile);
+    const files = buildFileIndex();
+    const symbols = buildSymbolIndex();
+    const fileGroups = buildFileGroupIndex(allFiles);
+    const entrypoints = buildEntrypointIndex();
+    const tasks = buildTaskMap();
+    const summary = {
+        generatedAt: getLatestUpdatedAt(allFiles),
+        totalFilesScanned: allFiles.length,
+        indexedFiles: files.length,
+        indexedSymbols: symbols.length,
+        fileGroups: fileGroups.length,
+        truncated:
+            allImportantFiles.length > MAX_INDEX_FILES ||
+            symbols.length >= MAX_INDEX_SYMBOLS ||
+            fileGroups.length >= MAX_FILE_GROUPS ||
+            tasks.length >= MAX_TASKS,
+    };
 
     return {
-        filesChanged: writeJsonIfChanged(CONTEXT_INDEX_FILES_PATH, buildFileIndex()),
-        symbolsChanged: writeJsonIfChanged(CONTEXT_INDEX_SYMBOLS_PATH, buildSymbolIndex()),
+        aiChanged: writeIfChanged(CONTEXT_AI_PATH, AI_INSTRUCTIONS),
+        filesChanged: writeJsonIfChanged(CONTEXT_INDEX_FILES_PATH, files),
+        symbolsChanged: writeJsonIfChanged(CONTEXT_INDEX_SYMBOLS_PATH, symbols),
+        fileGroupsChanged: writeJsonIfChanged(CONTEXT_INDEX_FILE_GROUPS_PATH, fileGroups),
+        entrypointsChanged: writeJsonIfChanged(
+            CONTEXT_INDEX_ENTRYPOINTS_PATH,
+            entrypoints,
+        ),
+        summaryChanged: writeJsonIfChanged(CONTEXT_INDEX_SUMMARY_PATH, summary),
+        tasksChanged: writeJsonIfChanged(CONTEXT_TASKS_PATH, tasks),
     };
 }

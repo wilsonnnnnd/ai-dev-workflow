@@ -1,0 +1,40 @@
+[
+    {
+        "path": "bin",
+        "fileCount": 3,
+        "summary": "CLI entrypoints and command wrappers.",
+        "keyFiles": [
+            "bin/cli.js",
+            "bin/init.js",
+            "bin/scan.js"
+        ]
+    },
+    {
+        "path": ".",
+        "fileCount": 3,
+        "summary": "Repository root files and package metadata.",
+        "keyFiles": [
+            "package.json",
+            "AGENTS.md",
+            "README.md"
+        ]
+    },
+    {
+        "path": "src/scan",
+        "fileCount": 13,
+        "summary": "Project scanning, context validation, and index generation logic.",
+        "keyFiles": [
+            "src/scan/context.js",
+            "src/scan/index.js",
+            "src/scan/constants.js"
+        ]
+    },
+    {
+        "path": "test",
+        "fileCount": 1,
+        "summary": "Automated tests and regression coverage.",
+        "keyFiles": [
+            "test/cli.test.js"
+        ]
+    }
+]

@@ -1,0 +1,57 @@
+[
+    {
+        "task": "change init behavior",
+        "files": [
+            "bin/init.js",
+            "bin/cli.js",
+            "test/cli.test.js"
+        ],
+        "notes": "Keep structured CLI output and update tests.",
+        "confidence": 0.8,
+        "source": "heuristic"
+    },
+    {
+        "task": "change scan behavior",
+        "files": [
+            "src/scan/index.js",
+            "bin/scan.js",
+            "test/cli.test.js"
+        ],
+        "notes": "Preserve scan output format and exit-code behavior.",
+        "confidence": 0.8,
+        "source": "heuristic"
+    },
+    {
+        "task": "change context validation",
+        "files": [
+            "src/scan/context.js",
+            "src/scan/constants.js",
+            "test/cli.test.js"
+        ],
+        "notes": "Keep .aidw completeness checks focused on required files.",
+        "confidence": 0.75,
+        "source": "heuristic"
+    },
+    {
+        "task": "change project index generation",
+        "files": [
+            "src/scan/indexers/project-index.js",
+            "src/scan/index.js",
+            "test/cli.test.js"
+        ],
+        "notes": "Keep indexes bounded, dependency-free, and based on current filesystem state.",
+        "confidence": 0.8,
+        "source": "heuristic"
+    },
+    {
+        "task": "update project documentation",
+        "files": [
+            "README.md",
+            "AGENTS.md",
+            "skill.md"
+        ],
+        "notes": "Keep user-facing paths aligned with .aidw/.",
+        "confidence": 0.65,
+        "source": "heuristic"
+    }
+]

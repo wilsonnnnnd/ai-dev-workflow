@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import {
     CONTEXT_DIR,
     CONTEXT_INDEX_DIR,
+    CONTEXT_TASKS_DIR,
     MANAGED_CONTEXT_FILE_PATHS,
 } from "../src/scan/constants.js";
 
@@ -142,6 +143,9 @@ export async function runInit(options = {}) {
 
     if (!initOptions.dryRun) {
         fs.mkdirSync(path.resolve(initOptions.targetDir, CONTEXT_INDEX_DIR), {
+            recursive: true,
+        });
+        fs.mkdirSync(path.resolve(initOptions.targetDir, CONTEXT_TASKS_DIR), {
             recursive: true,
         });
     }

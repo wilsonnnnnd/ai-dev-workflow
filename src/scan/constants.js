@@ -5,12 +5,24 @@ export const LEGACY_AUTO_GENERATED_END = "<!-- AUTO-GENERATED:END -->";
 
 export const CONTEXT_DIR = ".aidw";
 export const CONTEXT_VERSION = 1;
+export const CONTEXT_AI_PATH = `${CONTEXT_DIR}/AI.md`;
 export const CONTEXT_PROJECT_MD_PATH = `${CONTEXT_DIR}/project.md`;
 export const CONTEXT_META_PATH = `${CONTEXT_DIR}/meta.json`;
 export const CONTEXT_SCAN_LAST_PATH = `${CONTEXT_DIR}/scan/last.json`;
+export const CONTEXT_TASKS_DIR = `${CONTEXT_DIR}/context`;
+export const CONTEXT_TASKS_PATH = `${CONTEXT_TASKS_DIR}/tasks.json`;
 export const CONTEXT_INDEX_DIR = `${CONTEXT_DIR}/index`;
+export const CONTEXT_INDEX_FILE_GROUPS_PATH = `${CONTEXT_INDEX_DIR}/file-groups.json`;
 export const CONTEXT_INDEX_FILES_PATH = `${CONTEXT_INDEX_DIR}/files.json`;
+export const CONTEXT_INDEX_SUMMARY_PATH = `${CONTEXT_INDEX_DIR}/summary.json`;
 export const CONTEXT_INDEX_SYMBOLS_PATH = `${CONTEXT_INDEX_DIR}/symbols.json`;
+export const CONTEXT_INDEX_ENTRYPOINTS_PATH = `${CONTEXT_INDEX_DIR}/entrypoints.json`;
+
+export const MAX_INDEX_FILES = 200;
+export const MAX_INDEX_SYMBOLS = 500;
+export const MAX_FILE_GROUPS = 80;
+export const MAX_TASKS = 50;
+export const MAX_DESCRIPTION_LENGTH = 120;
 
 export const MANAGED_CONTEXT_FILE_PATHS = new Set([
     CONTEXT_PROJECT_MD_PATH,

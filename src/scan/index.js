@@ -7,7 +7,17 @@ import {
     detectUtilityDirs,
 } from "./detectors/reusable-system.js";
 import { detectRiskAreas } from "./detectors/risk-areas.js";
-import { CONTEXT_DIR, CONTEXT_PROJECT_MD_PATH } from "./constants.js";
+import {
+    CONTEXT_AI_PATH,
+    CONTEXT_DIR,
+    CONTEXT_INDEX_ENTRYPOINTS_PATH,
+    CONTEXT_INDEX_FILE_GROUPS_PATH,
+    CONTEXT_INDEX_FILES_PATH,
+    CONTEXT_INDEX_SUMMARY_PATH,
+    CONTEXT_INDEX_SYMBOLS_PATH,
+    CONTEXT_PROJECT_MD_PATH,
+    CONTEXT_TASKS_PATH,
+} from "./constants.js";
 import { getContextStatus } from "./context.js";
 import {
     getClosestStructurePath,
@@ -246,10 +256,38 @@ export function generateProjectMdContent(scanData = buildProjectScanData()) {
     return lines.join("\n");
 }
 
-function createScanResult(update, scanData, didWrite = false) {
+function getUpdatedIndexFiles(indexUpdate) {
+    const updatedFiles = [];
+
+    if (indexUpdate.aiChanged) {
+        updatedFiles.push(CONTEXT_AI_PATH);
+    }
+    if (indexUpdate.filesChanged) {
+        updatedFiles.push(CONTEXT_INDEX_FILES_PATH);
+    }
+    if (indexUpdate.symbolsChanged) {
+        updatedFiles.push(CONTEXT_INDEX_SYMBOLS_PATH);
+    }
+    if (indexUpdate.fileGroupsChanged) {
+        updatedFiles.push(CONTEXT_INDEX_FILE_GROUPS_PATH);
+    }
+    if (indexUpdate.entrypointsChanged) {
+        updatedFiles.push(CONTEXT_INDEX_ENTRYPOINTS_PATH);
+    }
+    if (indexUpdate.summaryChanged) {
+        updatedFiles.push(CONTEXT_INDEX_SUMMARY_PATH);
+    }
+    if (indexUpdate.tasksChanged) {
+        updatedFiles.push(CONTEXT_TASKS_PATH);
+    }
+
+    return updatedFiles;
+}
+
+function createScanResult(update, scanData, updatedFiles = []) {
     return {
         changed: update.changed,
-        updatedFiles: didWrite ? [CONTEXT_PROJECT_MD_PATH] : [],
+        updatedFiles,
         project: {
             type: scanData.projectType,
             entryPoints: scanData.entryPoints.map((entryPoint) => entryPoint.label),
@@ -352,8 +390,13 @@ function updateProjectIndexSafe() {
     } catch (error) {
         console.warn(`Warning: Project index generation failed: ${error.message}`);
         return {
+            aiChanged: false,
             filesChanged: false,
             symbolsChanged: false,
+            fileGroupsChanged: false,
+            entrypointsChanged: false,
+            summaryChanged: false,
+            tasksChanged: false,
         };
     }
 }
@@ -391,8 +434,11 @@ export async function runScan(options = {}) {
 
     const indexUpdate = updateProjectIndexSafe();
     const update = updateProjectMd(content);
-    const didWrite = update.changed && !update.skipped;
-    const result = createScanResult(update, scanData, didWrite);
+    const updatedFiles = [
+        ...(update.changed && !update.skipped ? [CONTEXT_PROJECT_MD_PATH] : []),
+        ...getUpdatedIndexFiles(indexUpdate),
+    ];
+    const result = createScanResult(update, scanData, updatedFiles);
     result.index = indexUpdate;
 
     if (!update.changed) {

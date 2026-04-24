@@ -305,7 +305,7 @@ old generated content
             const updated = fs.readFileSync(".aidw/project.md", "utf-8");
 
             assert.equal(result.changed, true);
-            assert.deepEqual(result.updatedFiles, [".aidw/project.md"]);
+            assert.ok(result.updatedFiles.includes(".aidw/project.md"));
             assert.equal(result.project.type, PROJECT_TYPES.CLI_TOOL);
             assert.deepEqual(result.project.entryPoints, ["bin/cli.js"]);
             assert.match(updated, /## AI Development Notes/);
@@ -401,7 +401,7 @@ old generated content
             const { output, result } = await withCapturedConsole(() => runScan());
 
             assert.equal(result.changed, true);
-            assert.deepEqual(result.updatedFiles, [".aidw/project.md"]);
+            assert.ok(result.updatedFiles.includes(".aidw/project.md"));
             assert.match(output.join("\n"), /Project scan completed/);
             assert.match(output.join("\n"), /Changes:\n\* Updated \.aidw\/project\.md/);
             assert.match(output.join("\n"), /Summary:\n\* Project type: cli-tool/);
@@ -412,7 +412,15 @@ old generated content
     await t.test("scan creates project index files", async () => {
         await withTempProject(async () => {
             await withMutedConsole(() => runInit());
-            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+            writeFile(
+                "package.json",
+                JSON.stringify({
+                    name: "scan-target",
+                    bin: {
+                        "scan-target": "bin/cli.js",
+                    },
+                }),
+            );
             writeFile("bin/cli.js", "#!/usr/bin/env node\nexport function main() {}\n");
             writeFile(
                 "src/scan/context.js",
@@ -426,19 +434,70 @@ old generated content
             const symbolIndex = JSON.parse(
                 fs.readFileSync(".aidw/index/symbols.json", "utf-8"),
             );
+            const entrypointIndex = JSON.parse(
+                fs.readFileSync(".aidw/index/entrypoints.json", "utf-8"),
+            );
+            const fileGroups = JSON.parse(
+                fs.readFileSync(".aidw/index/file-groups.json", "utf-8"),
+            );
+            const summary = JSON.parse(
+                fs.readFileSync(".aidw/index/summary.json", "utf-8"),
+            );
+            const taskMap = JSON.parse(
+                fs.readFileSync(".aidw/context/tasks.json", "utf-8"),
+            );
 
             assert.equal(result.changed, true);
+            assert.ok(fs.existsSync(".aidw/AI.md"));
             assert.ok(fs.existsSync(".aidw/index/files.json"));
             assert.ok(fs.existsSync(".aidw/index/symbols.json"));
-            assert.ok(fileIndex.some((entry) => entry.path === "bin/cli.js"));
+            assert.ok(fs.existsSync(".aidw/index/file-groups.json"));
+            assert.ok(fs.existsSync(".aidw/index/summary.json"));
+            assert.ok(fs.existsSync(".aidw/index/entrypoints.json"));
+            assert.ok(fs.existsSync(".aidw/context/tasks.json"));
+            assert.ok(
+                fileIndex.some(
+                    (entry) =>
+                        entry.path === "bin/cli.js" &&
+                        typeof entry.confidence === "number" &&
+                        entry.source === "heuristic",
+                ),
+            );
             assert.ok(
                 symbolIndex.some(
                     (symbol) =>
                         symbol.name === "validateContext" &&
                         symbol.file === "src/scan/context.js" &&
-                        symbol.exported === true,
+                        symbol.exported === true &&
+                        typeof symbol.confidence === "number" &&
+                        symbol.source === "regex",
                 ),
             );
+            assert.ok(
+                entrypointIndex.some(
+                    (entrypoint) =>
+                        entrypoint.path === "bin/cli.js" &&
+                        entrypoint.command === "scan-target" &&
+                        entrypoint.source === "package.json",
+                ),
+            );
+            assert.ok(
+                taskMap.every((task) =>
+                    task.files.every((filePath) => fs.existsSync(filePath)),
+                ),
+            );
+            assert.ok(
+                fileGroups.some(
+                    (group) =>
+                        group.path === "src/scan" &&
+                        group.keyFiles.every((filePath) => fs.existsSync(filePath)),
+                ),
+            );
+            assert.equal(typeof summary.generatedAt, "string");
+            assert.equal(summary.totalFilesScanned >= summary.indexedFiles, true);
+            assert.equal(summary.indexedFiles, fileIndex.length);
+            assert.equal(summary.indexedSymbols, symbolIndex.length);
+            assert.equal(summary.fileGroups, fileGroups.length);
             assert.doesNotMatch(JSON.stringify(fileIndex), /ai\//);
             assert.doesNotMatch(JSON.stringify(symbolIndex), /ai\//);
         });
@@ -453,6 +512,16 @@ old generated content
             await withMutedConsole(() => runScan());
             const filesBefore = fs.readFileSync(".aidw/index/files.json", "utf-8");
             const symbolsBefore = fs.readFileSync(".aidw/index/symbols.json", "utf-8");
+            const entrypointsBefore = fs.readFileSync(
+                ".aidw/index/entrypoints.json",
+                "utf-8",
+            );
+            const fileGroupsBefore = fs.readFileSync(
+                ".aidw/index/file-groups.json",
+                "utf-8",
+            );
+            const summaryBefore = fs.readFileSync(".aidw/index/summary.json", "utf-8");
+            const tasksBefore = fs.readFileSync(".aidw/context/tasks.json", "utf-8");
 
             await withMutedConsole(() => runScan());
 
@@ -463,6 +532,184 @@ old generated content
             assert.equal(
                 fs.readFileSync(".aidw/index/symbols.json", "utf-8"),
                 symbolsBefore,
+            );
+            assert.equal(
+                fs.readFileSync(".aidw/index/entrypoints.json", "utf-8"),
+                entrypointsBefore,
+            );
+            assert.equal(
+                fs.readFileSync(".aidw/index/file-groups.json", "utf-8"),
+                fileGroupsBefore,
+            );
+            assert.equal(
+                fs.readFileSync(".aidw/index/summary.json", "utf-8"),
+                summaryBefore,
+            );
+            assert.equal(fs.readFileSync(".aidw/context/tasks.json", "utf-8"), tasksBefore);
+        });
+    });
+
+    await t.test("scan removes stale index records for deleted source files", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "package.json",
+                JSON.stringify({
+                    name: "scan-target",
+                    bin: {
+                        "scan-target": "bin/cli.js",
+                    },
+                }),
+            );
+            writeFile("bin/cli.js", "#!/usr/bin/env node\nexport function main() {}\n");
+            writeFile(
+                "src/scan/context.js",
+                "export function validateContext() { return { ok: true }; }\n",
+            );
+
+            await withMutedConsole(() => runScan());
+            fs.unlinkSync("src/scan/context.js");
+            await withMutedConsole(() => runScan());
+
+            const fileIndex = JSON.parse(
+                fs.readFileSync(".aidw/index/files.json", "utf-8"),
+            );
+            const symbolIndex = JSON.parse(
+                fs.readFileSync(".aidw/index/symbols.json", "utf-8"),
+            );
+            const taskMap = JSON.parse(
+                fs.readFileSync(".aidw/context/tasks.json", "utf-8"),
+            );
+            const fileGroups = JSON.parse(
+                fs.readFileSync(".aidw/index/file-groups.json", "utf-8"),
+            );
+
+            assert.equal(
+                fileIndex.some((entry) => entry.path === "src/scan/context.js"),
+                false,
+            );
+            assert.equal(
+                symbolIndex.some((symbol) => symbol.file === "src/scan/context.js"),
+                false,
+            );
+            assert.equal(
+                taskMap.some((task) => task.files.includes("src/scan/context.js")),
+                false,
+            );
+            assert.equal(
+                fileGroups.some((group) =>
+                    group.keyFiles.includes("src/scan/context.js"),
+                ),
+                false,
+            );
+            assert.equal(process.exitCode ?? 0, 0);
+        });
+    });
+
+    await t.test("scan removes stale entrypoints for deleted files", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "package.json",
+                JSON.stringify({
+                    name: "scan-target",
+                    bin: {
+                        "scan-target": "bin/cli.js",
+                    },
+                }),
+            );
+            writeFile("bin/cli.js", "#!/usr/bin/env node\nexport function main() {}\n");
+
+            await withMutedConsole(() => runScan());
+            fs.unlinkSync("bin/cli.js");
+            await withMutedConsole(() => runScan());
+
+            const entrypointIndex = JSON.parse(
+                fs.readFileSync(".aidw/index/entrypoints.json", "utf-8"),
+            );
+
+            assert.equal(
+                entrypointIndex.some((entrypoint) => entrypoint.path === "bin/cli.js"),
+                false,
+            );
+        });
+    });
+
+    await t.test("index size limits are enforced", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+            writeFile("node_modules/ignored-package/index.js", "export function ignored() {}\n");
+            writeFile("dist/ignored.js", "export function ignoredDist() {}\n");
+            writeFile("coverage/ignored.js", "export function ignoredCoverage() {}\n");
+
+            for (let index = 0; index < 240; index += 1) {
+                writeFile(
+                    `src/generated/file-${index}.js`,
+                    `export function generatedSymbol${index}() { return ${index}; }\n`,
+                );
+            }
+            for (let index = 0; index < 560; index += 1) {
+                writeFile(
+                    `bin/tool-${index}.js`,
+                    `export function toolSymbol${index}() { return ${index}; }\n`,
+                );
+            }
+
+            await withMutedConsole(() => runScan());
+
+            const fileIndex = JSON.parse(
+                fs.readFileSync(".aidw/index/files.json", "utf-8"),
+            );
+            const symbolIndex = JSON.parse(
+                fs.readFileSync(".aidw/index/symbols.json", "utf-8"),
+            );
+            const taskMap = JSON.parse(
+                fs.readFileSync(".aidw/context/tasks.json", "utf-8"),
+            );
+            const fileGroups = JSON.parse(
+                fs.readFileSync(".aidw/index/file-groups.json", "utf-8"),
+            );
+            const summary = JSON.parse(
+                fs.readFileSync(".aidw/index/summary.json", "utf-8"),
+            );
+
+            assert.ok(fileIndex.length <= 200);
+            assert.ok(symbolIndex.length <= 500);
+            assert.ok(fileGroups.length <= 80);
+            assert.ok(taskMap.length <= 50);
+            assert.equal(summary.indexedFiles, fileIndex.length);
+            assert.equal(summary.indexedSymbols, symbolIndex.length);
+            assert.equal(summary.fileGroups, fileGroups.length);
+            assert.equal(summary.truncated, true);
+            assert.ok(summary.totalFilesScanned > summary.indexedFiles);
+            assert.ok(
+                [...fileIndex, ...symbolIndex, ...taskMap].every((record) => {
+                    const description = record.description ?? record.notes ?? "";
+
+                    return description.length <= 120;
+                }),
+            );
+            assert.equal(
+                fileIndex.some((entry) => entry.path.startsWith("node_modules/")),
+                false,
+            );
+            assert.equal(
+                fileIndex.some((entry) => entry.path.startsWith("dist/")),
+                false,
+            );
+            assert.equal(
+                fileIndex.some((entry) => entry.path.startsWith("coverage/")),
+                false,
+            );
+            assert.equal(
+                fileIndex.some((entry) => entry.path.startsWith(".aidw/")),
+                false,
+            );
+            assert.ok(
+                fileGroups.every((group) =>
+                    group.keyFiles.every((filePath) => fs.existsSync(filePath)),
+                ),
             );
         });
     });
