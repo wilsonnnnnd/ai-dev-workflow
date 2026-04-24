@@ -39,6 +39,25 @@ async function withMutedConsole(callback) {
     }
 }
 
+async function withCapturedConsole(callback) {
+    const log = console.log;
+    const output = [];
+
+    try {
+        console.log = (...args) => {
+            output.push(args.join(" "));
+        };
+        const result = await callback();
+
+        return {
+            output,
+            result,
+        };
+    } finally {
+        console.log = log;
+    }
+}
+
 test("CLI behavior", async (t) => {
     await t.test("detects Next.js projects", async () => {
         await withTempProject(() => {
@@ -109,10 +128,14 @@ old generated content
             writeFile("package.json", JSON.stringify({ name: "scan-target" }));
             writeFile("bin/cli.js", "#!/usr/bin/env node\n");
 
-            await withMutedConsole(() => runScan());
+            const result = await withMutedConsole(() => runScan());
 
             const updated = fs.readFileSync("ai/project.md", "utf-8");
 
+            assert.equal(result.changed, true);
+            assert.deepEqual(result.updatedFiles, ["ai/project.md"]);
+            assert.equal(result.project.type, PROJECT_TYPES.CLI_TOOL);
+            assert.deepEqual(result.project.entryPoints, ["bin/cli.js"]);
             assert.match(updated, /## AI Development Notes/);
             assert.doesNotMatch(updated, /old generated content/);
             assert.match(updated, /- keep this note/);
@@ -139,10 +162,12 @@ old generated content
             writeFile("bin/cli.js", "#!/usr/bin/env node\n");
 
             const before = fs.readFileSync("ai/project.md", "utf-8");
-            await withMutedConsole(() => runScan({ mode: "check" }));
+            const result = await withMutedConsole(() => runScan({ mode: "check" }));
             const after = fs.readFileSync("ai/project.md", "utf-8");
 
             assert.equal(after, before);
+            assert.equal(result.changed, true);
+            assert.deepEqual(result.updatedFiles, []);
             assert.equal(process.exitCode, 1);
             process.exitCode = 0;
         });
@@ -172,6 +197,22 @@ old generated content
             assert.equal(update.changed, true);
             assert.match(updated, /## AI Development Notes/);
             assert.match(updated, /- keep this note/);
+        });
+    });
+
+    await t.test("default scan prints structured output", async () => {
+        await withTempProject(async () => {
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+            writeFile("bin/cli.js", "#!/usr/bin/env node\n");
+
+            const { output, result } = await withCapturedConsole(() => runScan());
+
+            assert.equal(result.changed, true);
+            assert.deepEqual(result.updatedFiles, ["ai/project.md"]);
+            assert.match(output.join("\n"), /✔ Project scan completed/);
+            assert.match(output.join("\n"), /Changes:\n- Updated ai\/project\.md/);
+            assert.match(output.join("\n"), /Summary:\n- Project type: cli-tool/);
+            assert.match(output.join("\n"), /- Entry points: bin\/cli\.js/);
         });
     });
 });
