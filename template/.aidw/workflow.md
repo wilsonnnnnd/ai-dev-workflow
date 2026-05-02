@@ -9,7 +9,7 @@
 5. Read the current task file.
 6. Identify files likely involved before editing.
 7. Make the smallest safe change.
-8. Run the task's test command.
+8. Run the task's test command through the confirmation gate when available.
 9. Summarize changed files and verification result.
 
 ## Change Rules

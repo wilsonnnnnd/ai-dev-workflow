@@ -5,7 +5,7 @@
         "file": "bin/cli.js",
         "description": "Provides project scanning behavior.",
         "exported": true,
-        "updatedAt": "2026-05-02T18:07:22.574Z",
+        "updatedAt": "2026-05-02T18:52:54.966Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -26,6 +26,16 @@
         "description": "Runs a CLI command workflow.",
         "exported": true,
         "updatedAt": "2026-05-02T17:52:33.058Z",
+        "confidence": 0.8,
+        "source": "regex"
+    },
+    {
+        "name": "runGate",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Runs a CLI command workflow.",
+        "exported": true,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -66,6 +76,56 @@
         "description": "Provides project scanning behavior.",
         "exported": true,
         "updatedAt": "2026-05-02T17:12:20.275Z",
+        "confidence": 0.8,
+        "source": "regex"
+    },
+    {
+        "name": "loadGateState",
+        "type": "function",
+        "file": "src/gate/state.js",
+        "description": "Provides project scanning behavior.",
+        "exported": true,
+        "updatedAt": "2026-05-02T18:52:21.871Z",
+        "confidence": 0.8,
+        "source": "regex"
+    },
+    {
+        "name": "resetGateState",
+        "type": "function",
+        "file": "src/gate/state.js",
+        "description": "Provides project scanning behavior.",
+        "exported": true,
+        "updatedAt": "2026-05-02T18:52:21.871Z",
+        "confidence": 0.8,
+        "source": "regex"
+    },
+    {
+        "name": "saveGateState",
+        "type": "function",
+        "file": "src/gate/state.js",
+        "description": "Provides project scanning behavior.",
+        "exported": true,
+        "updatedAt": "2026-05-02T18:52:21.871Z",
+        "confidence": 0.8,
+        "source": "regex"
+    },
+    {
+        "name": "setTaskConfirmed",
+        "type": "function",
+        "file": "src/gate/state.js",
+        "description": "Provides project scanning behavior.",
+        "exported": true,
+        "updatedAt": "2026-05-02T18:52:21.871Z",
+        "confidence": 0.8,
+        "source": "regex"
+    },
+    {
+        "name": "setTestsConfirmed",
+        "type": "function",
+        "file": "src/gate/state.js",
+        "description": "Provides project scanning behavior.",
+        "exported": true,
+        "updatedAt": "2026-05-02T18:52:21.871Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -565,7 +625,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": true,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -575,7 +635,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": true,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -585,7 +645,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": true,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -595,7 +655,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": true,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -605,7 +665,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": true,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -615,7 +675,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": true,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.8,
         "source": "regex"
     },
@@ -645,7 +705,7 @@
         "file": "bin/cli.js",
         "description": "Provides project scanning behavior.",
         "exported": false,
-        "updatedAt": "2026-05-02T18:07:22.574Z",
+        "updatedAt": "2026-05-02T18:52:54.966Z",
         "confidence": 0.65,
         "source": "regex"
     },
@@ -655,7 +715,7 @@
         "file": "bin/cli.js",
         "description": "Provides project scanning behavior.",
         "exported": false,
-        "updatedAt": "2026-05-02T18:07:22.574Z",
+        "updatedAt": "2026-05-02T18:52:54.966Z",
         "confidence": 0.65,
         "source": "regex"
     },
@@ -916,6 +976,76 @@
         "description": "Provides project scanning behavior.",
         "exported": false,
         "updatedAt": "2026-05-02T17:52:33.058Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "extractSection",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Provides project scanning behavior.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "getTaskTestCommand",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Provides project scanning behavior.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "normalizeCommand",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Provides project scanning behavior.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "printGateStatus",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Provides project scanning behavior.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "resolveTaskFile",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Provides project scanning behavior.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "runAllowedCommand",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Runs a CLI command workflow.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "usage",
+        "type": "function",
+        "file": "bin/gate.js",
+        "description": "Provides project scanning behavior.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:44.277Z",
         "confidence": 0.65,
         "source": "regex"
     },
@@ -1356,6 +1486,16 @@
         "description": "Provides project scanning behavior.",
         "exported": false,
         "updatedAt": "2026-05-02T17:12:20.275Z",
+        "confidence": 0.65,
+        "source": "regex"
+    },
+    {
+        "name": "getStatePath",
+        "type": "function",
+        "file": "src/gate/state.js",
+        "description": "Provides project scanning behavior.",
+        "exported": false,
+        "updatedAt": "2026-05-02T18:52:21.871Z",
         "confidence": 0.65,
         "source": "regex"
     },
@@ -1965,7 +2105,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": false,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.65,
         "source": "regex"
     },
@@ -1975,7 +2115,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": false,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.65,
         "source": "regex"
     },
@@ -1985,7 +2125,7 @@
         "file": "src/scan/task-registry.js",
         "description": "Provides project scanning behavior.",
         "exported": false,
-        "updatedAt": "2026-05-02T06:49:08.614Z",
+        "updatedAt": "2026-05-02T18:44:12.715Z",
         "confidence": 0.65,
         "source": "regex"
     },

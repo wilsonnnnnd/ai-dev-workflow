@@ -1,4 +1,4 @@
-﻿# Trae Project Rules
+# Trae Project Rules
 
 Use `AGENTS.md` as the source of truth for this repository.
 
@@ -7,5 +7,6 @@ Before answering or editing code, read:
 - .aidw/project.md
 - .aidw/rules.md
 - .aidw/task-entry.md
+- .aidw/confirmation-protocol.md
 
 Follow the workflow in `AGENTS.md`. Keep this file as a short Trae adapter instead of duplicating repository rules here.

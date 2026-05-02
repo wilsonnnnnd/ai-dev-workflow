@@ -103,6 +103,10 @@ export function parseTaskRegistry() {
             continue;
         }
 
+        if (/^example$/i.test(cells[0])) {
+            continue;
+        }
+
         tasks.push({
             id: cells[0],
             title: cells[1],

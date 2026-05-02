@@ -1,10 +1,11 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { main as runCliMain } from "../bin/cli.js";
 import { runContext } from "../bin/context.js";
+import { runGate } from "../bin/gate.js";
 import { runInit } from "../bin/init.js";
 import { runScan } from "../bin/scan.js";
 import { runTask } from "../bin/task.js";
@@ -70,10 +71,14 @@ async function withMutedConsole(callback) {
 
 async function withCapturedConsole(callback) {
     const log = console.log;
+    const error = console.error;
     const output = [];
 
     try {
         console.log = (...args) => {
+            output.push(args.join(" "));
+        };
+        console.error = (...args) => {
             output.push(args.join(" "));
         };
         const result = await callback();
@@ -84,6 +89,7 @@ async function withCapturedConsole(callback) {
         };
     } finally {
         console.log = log;
+        console.error = error;
     }
 }
 
@@ -744,6 +750,9 @@ old generated content
 
         const text = output.join("\n");
 
+        assert.match(text, /gate status/);
+        assert.match(text, /gate confirm task\|tests/);
+        assert.match(text, /gate run-test <taskId>/);
         assert.match(text, /task new \[title\]/);
         assert.match(text, /task checklist <taskId> \[--deep\]/);
         assert.match(text, /task pr <taskId> \[--deep\]/);
@@ -752,6 +761,19 @@ old generated content
         assert.match(text, /context brief -> context next-task -> context workset <taskId>/);
         assert.match(text, /task prompt <taskId> -> task checklist <taskId> -> task pr <taskId>/);
         assert.match(text, /ui\s+Start the local repo-context-kit web console/);
+    });
+
+    await t.test("gate blocks confirming tests before task", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            process.exitCode = 0;
+
+            const { output } = await withCapturedConsole(() => runGate(["confirm", "tests"]));
+
+            assert.equal(process.exitCode, 1);
+            assert.match(output.join("\n"), /Task must be confirmed before confirming tests/i);
+            process.exitCode = 0;
+        });
     });
 
     await t.test("README documents the recommended task-driven workflow commands", async () => {

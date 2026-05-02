@@ -1,23 +1,5 @@
 [
     {
-        "task": "Example row (does not require a file)",
-        "files": [],
-        "notes": "Implementation task file with scoped requirements and acceptance criteria.",
-        "confidence": 0.9,
-        "source": "task-file",
-        "id": "EXAMPLE",
-        "title": "Example row (does not require a file)",
-        "status": "cancelled",
-        "priority": "medium",
-        "owner": "-",
-        "dependencies": "-",
-        "file": null,
-        "path": null,
-        "hasAcceptanceCriteria": false,
-        "hasTestCommand": false,
-        "hasDefinitionOfDone": false
-    },
-    {
         "task": "change init behavior",
         "files": [
             "bin/init.js",

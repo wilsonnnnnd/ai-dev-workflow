@@ -20,6 +20,7 @@ Do not proceed without loading this context.
 - .aidw/project.md
 - .aidw/rules.md
 - .aidw/task-entry.md
+- .aidw/confirmation-protocol.md
 
 ## Workflow role
 Use this repository context to decide whether the user request is:

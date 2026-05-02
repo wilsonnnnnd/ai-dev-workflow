@@ -1,4 +1,4 @@
-﻿# repo-context-kit
+# repo-context-kit
 
 [![npm version](https://img.shields.io/npm/v/repo-context-kit)](https://www.npmjs.com/package/repo-context-kit)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
@@ -137,6 +137,7 @@ All adapters tell the tool to read:
 - `.aidw/project.md`
 - `.aidw/rules.md`
 - `.aidw/task-entry.md`
+- `.aidw/confirmation-protocol.md`
 
 This keeps the workflow consistent across tools.
 
@@ -146,7 +147,7 @@ After running `init` and `scan`, open the repository in Codex and say:
 
 ```text
 Please follow this repository's AGENTS.md.
-Read .aidw/project.md, .aidw/rules.md, and .aidw/task-entry.md first.
+Read .aidw/project.md, .aidw/rules.md, .aidw/task-entry.md, and .aidw/confirmation-protocol.md first.
 
 My request:
 ...
@@ -154,7 +155,7 @@ My request:
 
 Codex should use `AGENTS.md` as the workflow controller.
 
-For vague requests, it should ask clarification questions first. For clear requests, it should generate a structured implementation prompt or implement only when explicitly asked.
+For vague requests, it should ask clarification questions first. For clear requests, it should draft a task (goal/scope/requirements/acceptance criteria), wait for confirmation, then implement and verify.
 
 ## How To Use With Trae
 
@@ -206,19 +207,29 @@ The generated workflow is designed to keep AI output controlled and useful.
 `AGENTS.md` tells AI tools to classify requests into three paths:
 
 - Vague request: inspect likely areas, ask focused clarification questions, then stop
-- Clear request: generate one structured implementation prompt
-- Review request: review and refine an existing prompt, plan, or implementation
+- Clear request: draft a task (Goal/Background/Scope/Requirements/Acceptance Criteria/Test Command/Definition of Done), wait for confirmation, then implement and verify
+- Review request: review and refine an existing prompt, plan, task, or implementation against task acceptance criteria
 
 The default workflow avoids jumping straight into code unless the user explicitly asks for implementation.
 
-Generated prompts should include:
+Task drafts should include:
 
 - task goal
 - files to inspect
 - constraints
-- implementation direction
 - acceptance criteria
 - what must not be changed
+
+## Confirmation Gate (Optional)
+
+To keep command execution reviewable across Trae/Copilot/Codex workflows, repo-context-kit includes an optional confirmation gate:
+
+- `repo-context-kit gate status`
+- `repo-context-kit gate confirm task`
+- `repo-context-kit gate confirm tests`
+- `repo-context-kit gate run-test <taskId>`
+
+The gate stores its state in `.aidw/confirmation-gate.json` and only allows running a small allowlist of test commands.
 
 ## File Map And Indexes
 

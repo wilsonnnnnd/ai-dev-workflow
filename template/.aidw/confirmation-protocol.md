@@ -28,10 +28,10 @@
 
 ## 总体约束（门禁规则）
 
-1. 在 `TASK_CONFIRMED` 之前：
+1. 在 `TASK_CONFIRM` 之前：
    - 不允许修改任何代码文件。
    - 不允许运行任何命令（包括测试）。
-2. 在 `TESTS_CONFIRMED` 之前：
+2. 在 `TESTS_CONFIRM` 之前：
    - 不允许运行任何命令（包括测试命令）。
 3. 评审请求（Review）：
    - 以 Task/AC 为基准评审；若缺 Task/AC，先生成最小 Task/AC，再评审。
@@ -342,6 +342,7 @@ Do not change:
 输出要求：
 
 - 点选确认运行 `Test Command`；或点选跳过（必须选择跳过原因类型）。
+- 若提供 `repo-context-kit gate run-test <taskId>`，优先通过 gate 执行测试命令以强制门禁。
 
 固定输出模板：
 
@@ -480,4 +481,3 @@ Do not change:
 - Trae：把 `## Confirm` 的选项渲染为点选按钮；将“执行命令/写文件”作为受控动作，仅在相应确认后触发。
 - Copilot Chat：若无按钮，使用 `1/2/3/4` 选择确认；确保在用户确认之前不输出代码改动指令。
 - Codex：同样使用编号确认；若支持“执行工具/命令”能力，必须遵守门禁字段（`allow_commands`）为 true 才可执行。
-

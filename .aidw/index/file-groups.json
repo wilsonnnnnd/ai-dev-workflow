@@ -1,12 +1,12 @@
 [
     {
         "path": "bin",
-        "fileCount": 6,
+        "fileCount": 7,
         "summary": "CLI entrypoints and command wrappers.",
         "keyFiles": [
             "bin/cli.js",
             "bin/context.js",
-            "bin/init.js"
+            "bin/gate.js"
         ]
     },
     {
@@ -30,11 +30,28 @@
         ]
     },
     {
+        "path": "src/gate",
+        "fileCount": 1,
+        "summary": "Source modules for application behavior.",
+        "keyFiles": [
+            "src/gate/state.js"
+        ]
+    },
+    {
         "path": "test",
         "fileCount": 1,
         "summary": "Automated tests and regression coverage.",
         "keyFiles": [
             "test/cli.test.js"
+        ]
+    },
+    {
+        "path": "tools",
+        "fileCount": 2,
+        "summary": "Project files grouped by directory.",
+        "keyFiles": [
+            "tools/vscode-confirmation-gate/package.json",
+            "tools/vscode-confirmation-gate/extension.js"
         ]
     }
 ]

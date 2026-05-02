@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { runContext } from "./context.js";
+import { runGate } from "./gate.js";
 import { runInit } from "./init.js";
 import { runScan } from "./scan.js";
 import { runTask } from "./task.js";
@@ -28,6 +29,12 @@ Commands:
               Print the next active task context
   context workset <taskId> [--deep]
               Print bounded implementation context for one task
+  gate status
+              Show confirmation gate state
+  gate confirm task|tests
+              Set confirmation gate approvals for task and tests
+  gate run-test <taskId>
+              Run the selected task's test command if tests are confirmed
   task new [title]
               Create an implementation-ready task file and update task/task.md
   task checklist <taskId> [--deep]
@@ -41,6 +48,7 @@ Commands:
 Task-driven workflow:
   context brief -> context next-task -> context workset <taskId>
   task prompt <taskId> -> task checklist <taskId> -> task pr <taskId>
+  gate confirm task -> gate confirm tests -> gate run-test <taskId>
 
 Init options:
   --dry-run   Show what init would create or skip without writing files
@@ -110,6 +118,12 @@ export async function main(args = process.argv.slice(2)) {
         return;
     }
 
+    if (command === "gate") {
+        const commandIndex = args.indexOf(command);
+        await runGate(args.slice(commandIndex + 1));
+        return;
+    }
+
     if (command === "ui") {
         await runUi();
         return;
@@ -122,6 +136,9 @@ export async function main(args = process.argv.slice(2)) {
     console.log("  repo-context-kit context brief");
     console.log("  repo-context-kit context next-task");
     console.log("  repo-context-kit context workset <taskId> [--deep]");
+    console.log("  repo-context-kit gate status");
+    console.log("  repo-context-kit gate confirm task|tests");
+    console.log("  repo-context-kit gate run-test <taskId>");
     console.log("  repo-context-kit task new [title]");
     console.log("  repo-context-kit task checklist <taskId> [--deep]");
     console.log("  repo-context-kit task pr <taskId> [--deep]");

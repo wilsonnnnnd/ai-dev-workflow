@@ -23,6 +23,7 @@ Do not proceed without loading this context.
 - .aidw/safety.md
 - .aidw/system-overview.md
 - .aidw/task-entry.md
+- .aidw/confirmation-protocol.md
 - the current task file, when one exists
 
 ## Workflow role

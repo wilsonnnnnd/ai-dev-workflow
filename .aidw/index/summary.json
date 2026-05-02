@@ -1,8 +1,8 @@
 {
-    "generatedAt": "2026-05-02T18:40:41.152Z",
-    "totalFilesScanned": 51,
-    "indexedFiles": 27,
-    "indexedSymbols": 203,
-    "fileGroups": 4,
+    "generatedAt": "2026-05-02T18:53:41.270Z",
+    "totalFilesScanned": 56,
+    "indexedFiles": 31,
+    "indexedSymbols": 217,
+    "fileGroups": 6,
     "truncated": false
 }

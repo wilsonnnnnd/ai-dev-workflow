@@ -1,0 +1,46 @@
+{
+  "name": "repo-context-kit-confirmation-gate",
+  "displayName": "Repo Context Kit Confirmation Gate",
+  "description": "QuickPick-based confirmation gate runner for repo-context-kit task workflow.",
+  "version": "0.0.1",
+  "publisher": "repo-context-kit",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:repoContextKitGate.status",
+    "onCommand:repoContextKitGate.confirmTask",
+    "onCommand:repoContextKitGate.confirmTests",
+    "onCommand:repoContextKitGate.reset",
+    "onCommand:repoContextKitGate.runTaskTest"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "repoContextKitGate.status",
+        "title": "Repo Context Kit: Gate Status"
+      },
+      {
+        "command": "repoContextKitGate.confirmTask",
+        "title": "Repo Context Kit: Confirm Task"
+      },
+      {
+        "command": "repoContextKitGate.confirmTests",
+        "title": "Repo Context Kit: Confirm Tests"
+      },
+      {
+        "command": "repoContextKitGate.reset",
+        "title": "Repo Context Kit: Reset Gate"
+      },
+      {
+        "command": "repoContextKitGate.runTaskTest",
+        "title": "Repo Context Kit: Run Task Test Command"
+      }
+    ]
+  }
+}
+

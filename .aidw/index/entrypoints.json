@@ -17,6 +17,14 @@
     },
     {
         "name": "CLI entry",
+        "path": "bin/gate.js",
+        "command": "gate",
+        "description": "Likely CLI entry point under bin/.",
+        "confidence": 0.7,
+        "source": "heuristic"
+    },
+    {
+        "name": "CLI entry",
         "path": "bin/init.js",
         "command": "init",
         "description": "Likely CLI entry point under bin/.",

@@ -34,22 +34,22 @@ This file summarizes the AI-readable context system for this repository.
 ## Task Registry
 
 - Registry file: task/task.md (present)
-- Total tasks: 1
+- Total tasks: 0
 - Status breakdown:
   - todo: 0
   - in_progress: 0
   - done: 0
   - blocked: 0
-  - cancelled: 1
+  - cancelled: 0
 
 - Task health:
-  - tasks with acceptance criteria: 0 / 1
-  - tasks with test command: 0 / 1
-  - tasks with definition of done: 0 / 1
+  - tasks with acceptance criteria: 0 / 0
+  - tasks with test command: 0 / 0
+  - tasks with definition of done: 0 / 0
 
 ## Task Health
 
-- Task count: 1
+- Task count: 0
 - Tasks with acceptance criteria: 0
 - Tasks with test command: 0
 - Tasks with definition of done: 0

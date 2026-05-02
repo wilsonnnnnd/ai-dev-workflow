@@ -34,6 +34,7 @@ If clarification is required, only ask implementation-boundary questions.
     - Goal, Background, Scope, Requirements, Acceptance Criteria, Test Command, Definition of Done
   - ask the user to confirm the task draft before implementation (prefer click-to-confirm / multiple choice when supported)
   - after confirmation, implement and verify against the task acceptance criteria and test command
+  - when running tests, prefer `repo-context-kit gate run-test <taskId>` so test execution is blocked until explicitly confirmed
 
 - If a prompt/plan/task/implementation already exists:
   - review and refine it against the task acceptance criteria
