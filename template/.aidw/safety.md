@@ -2,7 +2,7 @@
 
 ## Protected Areas
 
-Treat these as high-risk unless the task explicitly includes them in scope:
+High-risk unless explicitly in scope:
 
 - Authentication and authorization
 - Database migrations
@@ -16,7 +16,6 @@ Treat these as high-risk unless the task explicitly includes them in scope:
 
 - Do not edit generated files manually.
 - Do not expose secrets or environment values.
-- Do not add new dependencies without explaining why.
-- Do not perform large refactors unless explicitly requested.
+- Do not add dependencies or perform large refactors unless required by the task.
 - Do not change test expectations just to make tests pass.
-- Do not remove validation, error handling, logging, or security checks without explanation.
+- Do not remove validation, error handling, logging, or security checks without a clear reason.

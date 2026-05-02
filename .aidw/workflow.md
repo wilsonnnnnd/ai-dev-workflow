@@ -1,31 +1,18 @@
 # AI Development Workflow
 
-## Required Flow
+## Flow
 
-1. Read `AGENTS.md`.
-2. Read `.aidw/project.md`.
-3. Read `.aidw/rules.md`.
-4. Read `.aidw/system-overview.md`.
-5. Read the current task file.
-6. Identify files likely involved before editing.
-7. Make the smallest safe change.
-8. Run the task's test command through the confirmation gate when available.
-9. Summarize changed files and verification result.
+1. Read `AGENTS.md`, then `.aidw/project.md`, `.aidw/rules.md`, and `.aidw/system-overview.md`.
+2. Read the current task file (when one exists).
+3. Identify likely affected files before editing.
+4. Make the smallest safe change.
+5. Run the task’s test command (prefer the confirmation gate when available).
+6. Report what changed, files changed, tests run, and remaining risks.
 
-## Change Rules
+## Rules
 
-- Do not change unrelated files.
-- Do not rename public APIs unless the task explicitly asks for it.
+- Keep scope tight; avoid unrelated changes and refactors.
+- Do not rename public APIs unless the task requires it.
 - Do not edit generated files manually.
-- Do not add dependencies unless the task allows it.
-- Do not modify auth, database, migration, or config files unless listed in scope.
-- If tests fail, explain the failure before making further changes.
-
-## Output Rules
-
-Every implementation response should include:
-
-- What changed
-- Files changed
-- Tests run
-- Remaining risks
+- Do not add dependencies unless required by the task.
+- Do not touch auth/db/migrations/config unless explicitly in scope.

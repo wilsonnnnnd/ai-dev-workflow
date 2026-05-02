@@ -6,6 +6,7 @@ Load:
 - .aidw/safety.md
 - .aidw/system-overview.md
 - .aidw/task-entry.md
+- .aidw/confirmation-protocol.md
 - current task file, when one exists
 
 # Task
@@ -15,42 +16,23 @@ My request:
 
 # Instructions
 
-Use `AGENTS.md` as the source of truth to decide the correct path.
+Use `AGENTS.md` as the source of truth.
 
-The clarification policy in `AGENTS.md` is the source of truth.
-If clarification is required, only ask implementation-boundary questions.
-
-- First decide whether this is a review request:
-  - If the user asks to review or provides an existing prompt/plan/task/implementation, treat it as review.
-  - Otherwise, treat it as an implementation request.
-
-- If the request is vague or high-level:
-  - identify relevant areas
-  - ask focused clarification questions
-  - stop after clarification
-
-- If the request is clear and implementation-ready:
-  - generate a task draft using the repo task template sections:
-    - Goal, Background, Scope, Requirements, Acceptance Criteria, Test Command, Definition of Done
-  - ask the user to confirm the task draft before implementation (prefer click-to-confirm / multiple choice when supported)
-  - after confirmation, implement and verify against the task acceptance criteria and test command
-  - when running tests, prefer `repo-context-kit gate run-test <taskId>` so test execution is blocked until explicitly confirmed
-
-- If a prompt/plan/task/implementation already exists:
-  - review and refine it against the task acceptance criteria
-  - if no task/acceptance criteria exist yet, draft the minimal task/AC first, then review against it
+- Decide mode:
+  - REVIEW: user asks to review or provides an existing prompt/plan/task/implementation.
+  - IMPLEMENT: otherwise.
+- If vague: ask only implementation-boundary questions, then stop.
+- If clear: draft a task (Goal, Background, Scope, Requirements, Acceptance Criteria, Test Command, Definition of Done), request click-to-confirm, then implement and verify.
+- Prefer running tests via `repo-context-kit gate run-test <taskId>` when available.
+- For REVIEW without Task/AC: draft minimal Task/AC first, then review against it.
 
 # Constraints
 
-- Follow .aidw/rules.md strictly
-- Follow .aidw/workflow.md and .aidw/safety.md
-- Reuse existing components, hooks, utilities, and services
-- Keep changes minimal and localized
-- Do not break existing functionality
-- Protect shared modules and keep them backward compatible
+- Follow `.aidw/rules.md`, `.aidw/workflow.md`, and `.aidw/safety.md`.
+- Reuse first; keep changes minimal; preserve backward compatibility; do not break existing functionality.
 
 # Output Rules
 
-- Do not write code unless the user explicitly requests implementation and confirms the task draft
-- Do not skip clarification for vague requests
-- Output must match the selected behavior
+- Do not write code unless the user explicitly requests implementation and confirms the task draft.
+- Do not skip clarification for vague requests.
+- Output must match the selected behavior (clarify / implement / review).
