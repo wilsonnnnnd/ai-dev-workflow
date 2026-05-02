@@ -26,6 +26,7 @@ import {
     writeText,
 } from "../fs-utils.js";
 import { getFastApiEntrypointCandidates } from "../python-utils.js";
+import { getTaskFileMetadata } from "../task-files.js";
 
 const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".py"]);
 const SKIPPED_DIRS = new Set([
@@ -699,14 +700,23 @@ export function buildTaskMap() {
         },
     ];
 
-    return taskCandidates
+    const heuristicTasks = taskCandidates
         .map((candidate) => ({
             ...candidate,
             files: existingFiles(candidate.files),
             notes: trimDescription(candidate.notes),
         }))
-        .filter((candidate) => candidate.files.length > 0)
-        .slice(0, MAX_TASKS);
+        .filter((candidate) => candidate.files.length > 0);
+    const fileTasks = getTaskFileMetadata().map((task) => ({
+        task: task.title,
+        files: [task.path],
+        notes: trimDescription("Implementation task file with scoped requirements and acceptance criteria."),
+        confidence: 0.9,
+        source: "task-file",
+        ...task,
+    }));
+
+    return [...fileTasks, ...heuristicTasks].slice(0, MAX_TASKS);
 }
 
 function writeIfChanged(relativePath, nextContent) {

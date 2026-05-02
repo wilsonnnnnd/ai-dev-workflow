@@ -2,7 +2,11 @@
 - AGENTS.md
 - .aidw/project.md
 - .aidw/rules.md
+- .aidw/workflow.md
+- .aidw/safety.md
+- .aidw/system-overview.md
 - .aidw/task-entry.md
+- current task file, when one exists
 
 # Task
 
@@ -30,6 +34,7 @@ If clarification is required, only ask implementation-boundary questions.
 # Constraints
 
 - Follow .aidw/rules.md strictly
+- Follow .aidw/workflow.md and .aidw/safety.md
 - Reuse existing components, hooks, utilities, and services
 - Keep changes minimal and localized
 - Do not break existing functionality

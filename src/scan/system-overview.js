@@ -1,4 +1,3 @@
-import path from "path";
 import {
     CONTEXT_DIR,
     CONTEXT_INDEX_ENTRYPOINTS_PATH,
@@ -7,10 +6,17 @@ import {
     CONTEXT_INDEX_SUMMARY_PATH,
     CONTEXT_INDEX_SYMBOLS_PATH,
     CONTEXT_PROJECT_MD_PATH,
+    CONTEXT_SAFETY_PATH,
     CONTEXT_SYSTEM_OVERVIEW_PATH,
     CONTEXT_TASKS_PATH,
+    CONTEXT_WORKFLOW_PATH,
 } from "./constants.js";
-import { ensureDir, exists, listDirSafe, readText, writeText } from "./fs-utils.js";
+import { ensureDir, exists, readText, writeText } from "./fs-utils.js";
+import {
+    getTaskFileMetadata,
+    getTaskHealthSummary,
+    listTaskFiles,
+} from "./task-files.js";
 
 const CONTEXT_SOURCES = [
     [CONTEXT_PROJECT_MD_PATH, "Generated project summary and durable manual notes"],
@@ -24,6 +30,8 @@ const CONTEXT_SOURCES = [
 const RULE_SOURCES = [
     ["AGENTS.md", "Main AI workflow entry point"],
     [".aidw/rules.md", "Repository engineering rules and constraints"],
+    [CONTEXT_WORKFLOW_PATH, "Standard AI-assisted development workflow"],
+    [CONTEXT_SAFETY_PATH, "Protected areas and AI change safety rules"],
     [".github/copilot-instructions.md", "GitHub Copilot repository instructions"],
     [".trae/rules/project_rules.md", "Trae repository rules adapter"],
     ["skill.md", "Claude-style skill workflow adapter"],
@@ -51,20 +59,12 @@ function formatRecord(filePath, purpose) {
     return `- \`${filePath}\` - status: ${statusFor(filePath)} - ${purpose}`;
 }
 
-function listTaskMarkdownFiles() {
-    return listDirSafe("task")
-        .filter((fileName) => path.extname(fileName).toLowerCase() === ".md")
-        .map((fileName) => `task/${fileName}`)
-        .filter((filePath) => exists(filePath))
-        .sort();
-}
-
 function appendRecords(lines, records) {
     lines.push(...records.map(([filePath, purpose]) => formatRecord(filePath, purpose)));
 }
 
 function appendTaskSources(lines) {
-    const taskFiles = listTaskMarkdownFiles();
+    const taskFiles = listTaskFiles();
     const taskStatus = taskFiles.length > 0 ? "present" : "missing";
 
     lines.push(
@@ -78,6 +78,17 @@ function appendTaskSources(lines) {
 
     lines.push(
         formatRecord(CONTEXT_TASKS_PATH, "Generated task-to-file mapping index"),
+    );
+}
+
+function appendTaskHealth(lines) {
+    const health = getTaskHealthSummary(getTaskFileMetadata());
+
+    lines.push(
+        `- Task count: ${health.count}`,
+        `- Tasks with acceptance criteria: ${health.withAcceptanceCriteria}`,
+        `- Tasks with test command: ${health.withTestCommand}`,
+        `- Tasks with definition of done: ${health.withDefinitionOfDone}`,
     );
 }
 
@@ -106,6 +117,9 @@ export function generateSystemOverviewContent() {
 
     lines.push("", "## Task Sources", "");
     appendTaskSources(lines);
+
+    lines.push("", "## Task Health", "");
+    appendTaskHealth(lines);
 
     lines.push("", "## Generated Indexes", "");
     appendRecords(lines, GENERATED_INDEXES);

@@ -6,6 +6,7 @@ import test from "node:test";
 import { main as runCliMain } from "../bin/cli.js";
 import { runInit } from "../bin/init.js";
 import { runScan } from "../bin/scan.js";
+import { runTask } from "../bin/task.js";
 import { PROJECT_TYPES } from "../src/scan/constants.js";
 import { detectProjectType } from "../src/scan/detectors/project-type.js";
 
@@ -237,6 +238,8 @@ test("CLI behavior", async (t) => {
 
             assert.ok(fs.existsSync(".aidw"));
             assert.ok(fs.existsSync(".aidw/project.md"));
+            assert.ok(fs.existsSync(".aidw/workflow.md"));
+            assert.ok(fs.existsSync(".aidw/safety.md"));
             assert.ok(fs.existsSync(".trae/rules/project_rules.md"));
             assert.equal(fs.existsSync("ai"), false);
             assert.ok(result.created.includes(".aidw/project.md"));
@@ -586,6 +589,69 @@ old generated content
         });
     });
 
+    await t.test("init AGENTS references workflow, safety, overview, and current task", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+
+            const agents = fs.readFileSync("AGENTS.md", "utf-8");
+
+            assert.match(agents, /\.aidw\/workflow\.md/);
+            assert.match(agents, /\.aidw\/safety\.md/);
+            assert.match(agents, /\.aidw\/system-overview\.md/);
+            assert.match(agents, /current task file/);
+        });
+    });
+
+    await t.test("task new creates first task file with npm test command", async () => {
+        await withTempProject(async () => {
+            writeFile("package.json", JSON.stringify({ name: "task-target" }));
+
+            const { output, result } = await withCapturedConsole(() =>
+                runTask(["new", "Add receipt evidence API"]),
+            );
+            const taskContent = fs.readFileSync(result.created, "utf-8");
+
+            assert.equal(result.created, "task/T-001-add-receipt-evidence-api.md");
+            assert.match(output.join("\n"), /Task created/);
+            assert.match(taskContent, /# T-001 Add Receipt Evidence API/);
+            assert.match(taskContent, /## Acceptance Criteria/);
+            assert.match(taskContent, /## Test Command/);
+            assert.match(taskContent, /npm test/);
+            assert.match(taskContent, /## Definition of Done/);
+        });
+    });
+
+    await t.test("task new increments numbering and uses default title", async () => {
+        await withTempProject(async () => {
+            const first = await withMutedConsole(() => runTask(["new"]));
+            const second = await withMutedConsole(() => runTask(["new", "Second task"]));
+
+            assert.equal(first.created, "task/T-001-new-task.md");
+            assert.equal(second.created, "task/T-002-second-task.md");
+            assert.ok(fs.existsSync(first.created));
+            assert.ok(fs.existsSync(second.created));
+        });
+    });
+
+    await t.test("task new defaults to pytest for Python-only project", async () => {
+        await withTempProject(async () => {
+            writeFile("requirements.txt", "pytest==8.0.0\n");
+
+            const result = await withMutedConsole(() =>
+                runTask(["new", "Add Python thing"]),
+            );
+            const taskContent = fs.readFileSync(result.created, "utf-8");
+
+            assert.match(taskContent, /```bash\npytest\n```/);
+        });
+    });
+
+    await t.test("CLI help includes task new command", async () => {
+        const { output } = await withCapturedConsole(() => runCliMain(["--help"]));
+
+        assert.match(output.join("\n"), /task new \[title\]/);
+    });
+
     await t.test("scan creates AI system overview with sources and indexes", async () => {
         await withTempProject(async () => {
             await withMutedConsole(() => runInit());
@@ -610,6 +676,11 @@ old generated content
             assert.match(overview, /## Rule Sources/);
             assert.match(overview, /`AGENTS\.md` - status: present/);
             assert.match(overview, /`\.aidw\/rules\.md` - status: present/);
+            assert.match(overview, /`\.aidw\/workflow\.md` - status: present/);
+            assert.match(overview, /`\.aidw\/safety\.md` - status: present/);
+            assert.match(overview, /## Task Health/);
+            assert.match(overview, /Task count: 2/);
+            assert.match(overview, /Tasks with acceptance criteria: 0/);
             assert.match(overview, /## Generated Indexes/);
             assert.match(overview, /`\.aidw\/index\/entrypoints\.json` - status: present/);
             assert.match(overview, /## AI Tool Adapters/);
@@ -618,6 +689,49 @@ old generated content
             assert.match(overview, /Markdown task files \(2 detected\)/);
             assert.match(overview, /`task\/01-feature\.md`/);
             assert.match(overview, /`task\/02-fix\.md`/);
+        });
+    });
+
+    await t.test("scan writes task file metadata into task index", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+            writeFile(
+                "task/T-001-add-receipt-evidence-api.md",
+                `# T-001 Add Receipt Evidence API
+
+## Acceptance Criteria
+
+- Works
+
+## Test Command
+
+\`\`\`bash
+npm test
+\`\`\`
+
+## Definition of Done
+
+- Done
+`,
+            );
+
+            await withMutedConsole(() => runScan());
+
+            const taskMap = JSON.parse(
+                fs.readFileSync(".aidw/context/tasks.json", "utf-8"),
+            );
+            const task = taskMap.find(
+                (entry) => entry.path === "task/T-001-add-receipt-evidence-api.md",
+            );
+
+            assert.equal(task.id, "T-001");
+            assert.equal(task.title, "Add Receipt Evidence API");
+            assert.deepEqual(task.files, ["task/T-001-add-receipt-evidence-api.md"]);
+            assert.equal(task.hasAcceptanceCriteria, true);
+            assert.equal(task.hasTestCommand, true);
+            assert.equal(task.hasDefinitionOfDone, true);
+            assert.equal(task.source, "task-file");
         });
     });
 
@@ -636,6 +750,8 @@ seed
             const overview = fs.readFileSync(".aidw/system-overview.md", "utf-8");
 
             assert.match(overview, /`AGENTS\.md` - status: missing/);
+            assert.match(overview, /`\.aidw\/workflow\.md` - status: missing/);
+            assert.match(overview, /`\.aidw\/safety\.md` - status: missing/);
             assert.match(overview, /`\.github\/copilot-instructions\.md` - status: missing/);
             assert.match(overview, /`\.trae\/rules\/project_rules\.md` - status: missing/);
             assert.match(overview, /`skill\.md` - status: missing/);
@@ -700,6 +816,47 @@ seed
             assert.match(
                 stale.output.join("\n"),
                 /\.aidw\/system-overview\.md is missing or out of date/,
+            );
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("scan check fails when task metadata is stale", async () => {
+        await withTempProject(async () => {
+            process.exitCode = 0;
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+
+            await withMutedConsole(() => runScan());
+            writeFile(
+                "task/T-001-new-task.md",
+                `# T-001 New Task
+
+## Acceptance Criteria
+
+- Works
+
+## Test Command
+
+\`\`\`bash
+npm test
+\`\`\`
+
+## Definition of Done
+
+- Done
+`,
+            );
+
+            const { output, result } = await withCapturedConsole(() =>
+                runScan({ mode: "check" }),
+            );
+
+            assert.equal(process.exitCode, 1);
+            assert.equal(result.changed, true);
+            assert.match(
+                output.join("\n"),
+                /\.aidw\/context\/tasks\.json is missing or out of date/,
             );
             process.exitCode = 0;
         });

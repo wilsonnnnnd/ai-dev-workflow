@@ -25,9 +25,9 @@ import {
     detectStructure,
     getStructureDescription,
 } from "./detectors/structure.js";
-import { exists, isDirectory } from "./fs-utils.js";
+import { exists, isDirectory, readJson } from "./fs-utils.js";
 import { detectPackageMetadata, detectTechStack } from "./package-utils.js";
-import { updateProjectIndex } from "./indexers/project-index.js";
+import { buildTaskMap, updateProjectIndex } from "./indexers/project-index.js";
 import {
     generateSystemOverviewContent,
     getSystemOverviewUpdate,
@@ -340,11 +340,16 @@ function printAutoScanResult(result) {
 }
 
 function combineCheckUpdates(projectUpdate, systemOverviewUpdate) {
+    const taskMapChanged =
+        JSON.stringify(readJson(CONTEXT_TASKS_PATH) ?? null) !==
+        JSON.stringify(buildTaskMap());
+
     return {
-        changed: projectUpdate.changed || systemOverviewUpdate.changed,
+        changed: projectUpdate.changed || systemOverviewUpdate.changed || taskMapChanged,
         skipped: projectUpdate.skipped,
         projectChanged: projectUpdate.changed,
         systemOverviewChanged: systemOverviewUpdate.changed,
+        taskMapChanged,
     };
 }
 
@@ -377,6 +382,9 @@ function printCheckResult(update) {
     }
     if (update.systemOverviewChanged) {
         console.log(`* ${CONTEXT_SYSTEM_OVERVIEW_PATH} is missing or out of date`);
+    }
+    if (update.taskMapChanged) {
+        console.log(`* ${CONTEXT_TASKS_PATH} is missing or out of date`);
     }
     console.log("");
     console.log("Next:");

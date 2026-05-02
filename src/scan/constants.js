@@ -8,6 +8,8 @@ export const CONTEXT_VERSION = 1;
 export const CONTEXT_AI_PATH = `${CONTEXT_DIR}/AI.md`;
 export const CONTEXT_PROJECT_MD_PATH = `${CONTEXT_DIR}/project.md`;
 export const CONTEXT_SYSTEM_OVERVIEW_PATH = `${CONTEXT_DIR}/system-overview.md`;
+export const CONTEXT_WORKFLOW_PATH = `${CONTEXT_DIR}/workflow.md`;
+export const CONTEXT_SAFETY_PATH = `${CONTEXT_DIR}/safety.md`;
 export const CONTEXT_META_PATH = `${CONTEXT_DIR}/meta.json`;
 export const CONTEXT_SCAN_LAST_PATH = `${CONTEXT_DIR}/scan/last.json`;
 export const CONTEXT_TASKS_DIR = `${CONTEXT_DIR}/context`;
@@ -27,6 +29,8 @@ export const MAX_DESCRIPTION_LENGTH = 120;
 
 export const MANAGED_CONTEXT_FILE_PATHS = new Set([
     CONTEXT_PROJECT_MD_PATH,
+    CONTEXT_WORKFLOW_PATH,
+    CONTEXT_SAFETY_PATH,
     CONTEXT_META_PATH,
     CONTEXT_SCAN_LAST_PATH,
 ]);

@@ -14,6 +14,7 @@ It gives Codex, Trae, GitHub Copilot, Claude, and other coding assistants one sh
 
 - Prompt workflow: creates a unified AI instruction entry point through `AGENTS.md`
 - File map: scans the repository and generates project indexes under `.aidw/index/`
+- Task workflow: creates implementation-ready task files and indexes task readiness
 - Project memory: stores durable project context, rules, notes, and task guidance under `.aidw/`
 
 The goal is simple: AI tools should understand the project before suggesting implementation.
@@ -208,6 +209,23 @@ This file is a control-layer map of the AI development context in the repository
 
 It is not a prompt manager. It is a generated summary that helps AI tools understand which context sources exist and whether optional files are present or missing.
 
+## AI Development Workflow
+
+`init` creates workflow and safety files for AI coding tools:
+
+- `.aidw/workflow.md` defines the standard AI coding flow.
+- `.aidw/safety.md` defines protected areas and safety rules.
+
+Create an implementation-ready task file with:
+
+```bash
+npx repo-context-kit task new "Add receipt evidence API"
+```
+
+This creates a numbered file under `task/` with scope, requirements, acceptance criteria, a test command, and definition of done. `scan` indexes task metadata into `.aidw/context/tasks.json`, including whether each task has acceptance criteria, a test command, and definition of done.
+
+This system guides AI coding tools, but it does not execute tasks or generate code automatically.
+
 ### Python and FastAPI awareness
 
 The scanner also recognizes Python/FastAPI repositories from common project files such as `requirements.txt`, `pyproject.toml`, `setup.py`, `poetry.lock`, and `Pipfile`.
@@ -269,6 +287,8 @@ It creates:
 - `skill.md`
 - `.aidw/project.md`
 - `.aidw/rules.md`
+- `.aidw/workflow.md`
+- `.aidw/safety.md`
 - `.aidw/task-entry.md`
 - `.aidw/meta.json`
 - `.aidw/scan/last.json`
@@ -322,6 +342,16 @@ npx repo-context-kit scan --auto
 ```
 
 This is useful for scripts and automation.
+
+### `npx repo-context-kit task new [title]`
+
+Creates a numbered markdown task file under `task/`.
+
+```bash
+npx repo-context-kit task new "Add receipt evidence API"
+```
+
+The task template includes goal, background, scope, requirements, acceptance criteria, test command, and definition of done.
 
 ## CI Example
 

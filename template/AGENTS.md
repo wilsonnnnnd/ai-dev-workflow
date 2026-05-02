@@ -8,7 +8,11 @@ Tool-specific files may exist, but they should only point back here instead of d
 ## Read first
 - .aidw/project.md
 - .aidw/rules.md
+- .aidw/workflow.md
+- .aidw/safety.md
+- .aidw/system-overview.md
 - .aidw/task-entry.md
+- the current task file, when one exists
 
 ## Workflow role
 Use this repository context to decide whether the user request is:
