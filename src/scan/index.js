@@ -16,6 +16,7 @@ import {
     CONTEXT_INDEX_SUMMARY_PATH,
     CONTEXT_INDEX_SYMBOLS_PATH,
     CONTEXT_PROJECT_MD_PATH,
+    CONTEXT_SYSTEM_OVERVIEW_PATH,
     CONTEXT_TASKS_PATH,
 } from "./constants.js";
 import { getContextStatus } from "./context.js";
@@ -27,6 +28,11 @@ import {
 import { exists, isDirectory } from "./fs-utils.js";
 import { detectPackageMetadata, detectTechStack } from "./package-utils.js";
 import { updateProjectIndex } from "./indexers/project-index.js";
+import {
+    generateSystemOverviewContent,
+    getSystemOverviewUpdate,
+    updateSystemOverview,
+} from "./system-overview.js";
 import { getProjectMdUpdate, updateProjectMd } from "./writers/project-md.js";
 
 function formatDescriptiveList(items) {
@@ -333,6 +339,15 @@ function printAutoScanResult(result) {
     console.log("* auto");
 }
 
+function combineCheckUpdates(projectUpdate, systemOverviewUpdate) {
+    return {
+        changed: projectUpdate.changed || systemOverviewUpdate.changed,
+        skipped: projectUpdate.skipped,
+        projectChanged: projectUpdate.changed,
+        systemOverviewChanged: systemOverviewUpdate.changed,
+    };
+}
+
 function printCheckResult(update) {
     if (update.skipped) {
         console.log("\u2716 Project context cannot be checked");
@@ -350,13 +365,19 @@ function printCheckResult(update) {
         console.log("");
         console.log("Checked:");
         console.log(`* ${CONTEXT_PROJECT_MD_PATH} AUTO-GENERATED section`);
+        console.log(`* ${CONTEXT_SYSTEM_OVERVIEW_PATH}`);
         return;
     }
 
     console.log("\u2716 Project context is outdated");
     console.log("");
     console.log("Changes:");
-    console.log(`* ${CONTEXT_PROJECT_MD_PATH} generated section is out of date`);
+    if (update.projectChanged) {
+        console.log(`* ${CONTEXT_PROJECT_MD_PATH} generated section is out of date`);
+    }
+    if (update.systemOverviewChanged) {
+        console.log(`* ${CONTEXT_SYSTEM_OVERVIEW_PATH} is missing or out of date`);
+    }
     console.log("");
     console.log("Next:");
     console.log("* Run 'repo-context-kit scan' to update.");
@@ -420,7 +441,9 @@ export async function runScan(options = {}) {
     const content = generateProjectMdContent(scanData);
 
     if (mode === "check") {
-        const update = getProjectMdUpdate(content);
+        const projectUpdate = getProjectMdUpdate(content);
+        const systemOverviewUpdate = getSystemOverviewUpdate();
+        const update = combineCheckUpdates(projectUpdate, systemOverviewUpdate);
         const result = createScanResult(update, scanData);
 
         printCheckResult(update);
@@ -433,15 +456,27 @@ export async function runScan(options = {}) {
     }
 
     const indexUpdate = updateProjectIndexSafe();
+    const systemOverviewUpdate = updateSystemOverview(
+        generateSystemOverviewContent(),
+    );
     const update = updateProjectMd(content);
     const updatedFiles = [
         ...(update.changed && !update.skipped ? [CONTEXT_PROJECT_MD_PATH] : []),
         ...getUpdatedIndexFiles(indexUpdate),
+        ...(systemOverviewUpdate.changed ? [CONTEXT_SYSTEM_OVERVIEW_PATH] : []),
     ];
-    const result = createScanResult(update, scanData, updatedFiles);
+    const result = createScanResult(
+        {
+            ...update,
+            changed: update.changed || systemOverviewUpdate.changed,
+        },
+        scanData,
+        updatedFiles,
+    );
     result.index = indexUpdate;
+    result.systemOverview = systemOverviewUpdate;
 
-    if (!update.changed) {
+    if (!result.changed) {
         if (mode === "auto") {
             printAutoScanResult(result);
             return result;

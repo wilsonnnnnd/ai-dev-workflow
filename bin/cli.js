@@ -4,7 +4,10 @@ import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { runInit } from "./init.js";
 import { runScan } from "./scan.js";
-import { CONTEXT_PROJECT_MD_PATH } from "../src/scan/constants.js";
+import {
+    CONTEXT_PROJECT_MD_PATH,
+    CONTEXT_SYSTEM_OVERVIEW_PATH,
+} from "../src/scan/constants.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,7 +18,7 @@ function printHelp() {
 
 Commands:
   init        Copy workflow template into the current repository
-  scan        Update ${CONTEXT_PROJECT_MD_PATH} project context
+  scan        Update ${CONTEXT_PROJECT_MD_PATH}, ${CONTEXT_SYSTEM_OVERVIEW_PATH}, and indexes
 
 Init options:
   --dry-run   Show what init would create or skip without writing files

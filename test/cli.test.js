@@ -586,6 +586,125 @@ old generated content
         });
     });
 
+    await t.test("scan creates AI system overview with sources and indexes", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+            writeFile("bin/cli.js", "#!/usr/bin/env node\n");
+            writeFile("task/01-feature.md", "# Feature task\n");
+            writeFile("task/02-fix.md", "# Fix task\n");
+
+            const { output, result } = await withCapturedConsole(() => runScan());
+            const overview = fs.readFileSync(".aidw/system-overview.md", "utf-8");
+
+            assert.ok(fs.existsSync(".aidw/system-overview.md"));
+            assert.ok(result.updatedFiles.includes(".aidw/system-overview.md"));
+            assert.match(
+                output.join("\n"),
+                /\* Updated \.aidw\/system-overview\.md/,
+            );
+            assert.match(overview, /# AI System Overview/);
+            assert.match(overview, /## Context Sources/);
+            assert.match(overview, /`\.aidw\/project\.md` - status: present/);
+            assert.match(overview, /`\.aidw\/index\/summary\.json` - status: present/);
+            assert.match(overview, /## Rule Sources/);
+            assert.match(overview, /`AGENTS\.md` - status: present/);
+            assert.match(overview, /`\.aidw\/rules\.md` - status: present/);
+            assert.match(overview, /## Generated Indexes/);
+            assert.match(overview, /`\.aidw\/index\/entrypoints\.json` - status: present/);
+            assert.match(overview, /## AI Tool Adapters/);
+            assert.match(overview, /`\.github\/copilot-instructions\.md` - status: present/);
+            assert.match(overview, /`\.trae\/rules\/project_rules\.md` - status: present/);
+            assert.match(overview, /Markdown task files \(2 detected\)/);
+            assert.match(overview, /`task\/01-feature\.md`/);
+            assert.match(overview, /`task\/02-fix\.md`/);
+        });
+    });
+
+    await t.test("system overview marks optional files as missing", async () => {
+        await withTempProject(async () => {
+            writeContextProject(`# Project Context
+
+<!-- AUTO-GENERATED START -->
+seed
+<!-- AUTO-GENERATED END -->
+`);
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+
+            await withMutedConsole(() => runScan());
+
+            const overview = fs.readFileSync(".aidw/system-overview.md", "utf-8");
+
+            assert.match(overview, /`AGENTS\.md` - status: missing/);
+            assert.match(overview, /`\.github\/copilot-instructions\.md` - status: missing/);
+            assert.match(overview, /`\.trae\/rules\/project_rules\.md` - status: missing/);
+            assert.match(overview, /`skill\.md` - status: missing/);
+            assert.match(overview, /`\.aidw\/task-entry\.md` - status: missing/);
+            assert.match(overview, /`task\/\*\.md` - status: missing/);
+        });
+    });
+
+    await t.test("system overview lists up to ten task markdown files", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+
+            for (let index = 1; index <= 11; index += 1) {
+                writeFile(
+                    `task/${String(index).padStart(2, "0")}-task.md`,
+                    `# Task ${index}\n`,
+                );
+            }
+
+            await withMutedConsole(() => runScan());
+
+            const overview = fs.readFileSync(".aidw/system-overview.md", "utf-8");
+
+            assert.match(overview, /Markdown task files \(11 detected\)/);
+            assert.match(overview, /`task\/01-task\.md`/);
+            assert.match(overview, /`task\/10-task\.md`/);
+            assert.doesNotMatch(overview, /`task\/11-task\.md`/);
+        });
+    });
+
+    await t.test("scan check fails when system overview is missing or outdated", async () => {
+        await withTempProject(async () => {
+            process.exitCode = 0;
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+
+            await withMutedConsole(() => runScan());
+            fs.unlinkSync(".aidw/system-overview.md");
+
+            const missing = await withCapturedConsole(() =>
+                runScan({ mode: "check" }),
+            );
+
+            assert.equal(process.exitCode, 1);
+            assert.equal(missing.result.changed, true);
+            assert.match(
+                missing.output.join("\n"),
+                /\.aidw\/system-overview\.md is missing or out of date/,
+            );
+
+            process.exitCode = 0;
+            await withMutedConsole(() => runScan());
+            writeFile(".aidw/system-overview.md", "stale\n");
+
+            const stale = await withCapturedConsole(() =>
+                runScan({ mode: "check" }),
+            );
+
+            assert.equal(process.exitCode, 1);
+            assert.equal(stale.result.changed, true);
+            assert.match(
+                stale.output.join("\n"),
+                /\.aidw\/system-overview\.md is missing or out of date/,
+            );
+            process.exitCode = 0;
+        });
+    });
+
     await t.test("scan does not rewrite unchanged index files", async () => {
         await withTempProject(async () => {
             await withMutedConsole(() => runInit());
@@ -604,6 +723,10 @@ old generated content
                 "utf-8",
             );
             const summaryBefore = fs.readFileSync(".aidw/index/summary.json", "utf-8");
+            const systemOverviewBefore = fs.readFileSync(
+                ".aidw/system-overview.md",
+                "utf-8",
+            );
             const tasksBefore = fs.readFileSync(".aidw/context/tasks.json", "utf-8");
 
             await withMutedConsole(() => runScan());
@@ -627,6 +750,10 @@ old generated content
             assert.equal(
                 fs.readFileSync(".aidw/index/summary.json", "utf-8"),
                 summaryBefore,
+            );
+            assert.equal(
+                fs.readFileSync(".aidw/system-overview.md", "utf-8"),
+                systemOverviewBefore,
             );
             assert.equal(fs.readFileSync(".aidw/context/tasks.json", "utf-8"), tasksBefore);
         });

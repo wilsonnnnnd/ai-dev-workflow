@@ -185,6 +185,7 @@ The scanner generates AI-readable project maps:
 | File | Purpose |
 | --- | --- |
 | `.aidw/project.md` | Human-readable project summary and memory |
+| `.aidw/system-overview.md` | Generated map of AI context sources, rules, tasks, indexes, and tool adapters |
 | `.aidw/index/files.json` | Important files and descriptions |
 | `.aidw/index/symbols.json` | Functions, classes, components, and exports |
 | `.aidw/index/entrypoints.json` | CLI, app, and execution entry points |
@@ -194,6 +195,18 @@ The scanner generates AI-readable project maps:
 | `.aidw/AI.md` | Compact guide for AI tools using the indexes |
 
 These files help assistants find the right files faster and avoid guessing project structure.
+
+## AI System Overview
+
+`repo-context-kit scan` also generates:
+
+```text
+.aidw/system-overview.md
+```
+
+This file is a control-layer map of the AI development context in the repository. It shows available context files, repository rules, task files, generated indexes, and AI tool adapters such as `AGENTS.md`, GitHub Copilot instructions, and Trae rules.
+
+It is not a prompt manager. It is a generated summary that helps AI tools understand which context sources exist and whether optional files are present or missing.
 
 ### Python and FastAPI awareness
 
@@ -219,6 +232,7 @@ Project memory lives in `.aidw/`.
 The most important files are:
 
 - `.aidw/project.md`: generated project context plus manual notes
+- `.aidw/system-overview.md`: generated map of context sources and AI tool adapters
 - `.aidw/rules.md`: engineering rules and constraints
 - `.aidw/task-entry.md`: reusable task request template
 - `.aidw/index/*`: file map and symbol indexes
@@ -276,7 +290,7 @@ npx repo-context-kit init --force
 
 ### `npx repo-context-kit scan`
 
-Scans the current repository and updates `.aidw/project.md` plus the index files.
+Scans the current repository and updates `.aidw/project.md`, `.aidw/system-overview.md`, and the index files.
 
 Use this after:
 
