@@ -3,7 +3,15 @@
         "path": "bin/cli.js",
         "type": "entry",
         "description": "CLI entry point that parses commands and flags.",
-        "updatedAt": "2026-05-02T15:27:40.956Z",
+        "updatedAt": "2026-05-02T18:07:22.574Z",
+        "confidence": 0.9,
+        "source": "heuristic"
+    },
+    {
+        "path": "bin/context.js",
+        "type": "entry",
+        "description": "Validates .aidw project context files.",
+        "updatedAt": "2026-05-02T17:52:33.058Z",
         "confidence": 0.9,
         "source": "heuristic"
     },
@@ -27,7 +35,7 @@
         "path": "bin/task.js",
         "type": "entry",
         "description": "Project file relevant to repository structure.",
-        "updatedAt": "2026-05-02T06:49:32.032Z",
+        "updatedAt": "2026-05-02T18:07:18.209Z",
         "confidence": 0.9,
         "source": "heuristic"
     },
@@ -35,7 +43,7 @@
         "path": "bin/ui.js",
         "type": "entry",
         "description": "Project file relevant to repository structure.",
-        "updatedAt": "2026-05-02T15:35:45.355Z",
+        "updatedAt": "2026-05-02T17:12:20.275Z",
         "confidence": 0.9,
         "source": "heuristic"
     },
@@ -187,7 +195,7 @@
         "path": "test/cli.test.js",
         "type": "test",
         "description": "Automated test coverage for CLI behavior.",
-        "updatedAt": "2026-05-02T15:30:11.459Z",
+        "updatedAt": "2026-05-02T18:07:44.955Z",
         "confidence": 0.75,
         "source": "heuristic"
     },
@@ -195,7 +203,7 @@
         "path": "AGENTS.md",
         "type": "other",
         "description": "Project file relevant to repository structure.",
-        "updatedAt": "2026-04-26T05:09:39.108Z",
+        "updatedAt": "2026-05-02T18:28:31.865Z",
         "confidence": 0.55,
         "source": "heuristic"
     },
@@ -203,7 +211,7 @@
         "path": "README.md",
         "type": "other",
         "description": "Project file relevant to repository structure.",
-        "updatedAt": "2026-05-02T15:37:36.768Z",
+        "updatedAt": "2026-05-02T18:07:31.351Z",
         "confidence": 0.55,
         "source": "heuristic"
     }

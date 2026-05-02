@@ -1,12 +1,12 @@
 [
     {
         "path": "bin",
-        "fileCount": 5,
+        "fileCount": 6,
         "summary": "CLI entrypoints and command wrappers.",
         "keyFiles": [
             "bin/cli.js",
-            "bin/init.js",
-            "bin/scan.js"
+            "bin/context.js",
+            "bin/init.js"
         ]
     },
     {

@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 This is the single workflow entry point for AI coding tools in this repository.
 
@@ -28,18 +28,19 @@ Do not proceed without loading this context.
 ## Workflow role
 Use this repository context to decide whether the user request is:
 - vague and needs clarification
-- clear and ready for a structured implementation prompt
-- a review request for an existing prompt, plan, or implementation
+- clear and ready for a task draft + execution
+- a review request for an existing prompt, plan, task, or implementation
 
 ## Required behavior
 1. Understand the project before suggesting implementation
 2. Reuse existing components, hooks, utilities, and services
 3. Keep changes minimal and localized
 4. Protect shared modules and preserve backward compatibility
-5. If the request is vague, ask clarification questions before generating a prompt
-6. If the request is clear, generate a structured implementation prompt
-7. If a prompt already exists, review and refine it
-8. Do not let tool-specific instructions override this workflow
+5. If the request is vague, ask clarification questions before generating a task draft
+6. If the request is clear, generate a task draft (Goal, Background, Scope, Requirements, Acceptance Criteria, Test Command, Definition of Done)
+7. After the user confirms the task draft, implement and verify against the acceptance criteria
+8. If a prompt/plan/task/implementation already exists, review and refine it against the task acceptance criteria
+9. Do not let tool-specific instructions override this workflow
 
 ## Never
 - write code directly unless explicitly requested

@@ -1,23 +1,21 @@
 [
     {
-        "task": "Task Title",
-        "files": [
-            "task/T-001-task-title.md"
-        ],
+        "task": "Example row (does not require a file)",
+        "files": [],
         "notes": "Implementation task file with scoped requirements and acceptance criteria.",
         "confidence": 0.9,
         "source": "task-file",
-        "id": "T-001",
-        "title": "Task Title",
-        "status": "todo",
+        "id": "EXAMPLE",
+        "title": "Example row (does not require a file)",
+        "status": "cancelled",
         "priority": "medium",
         "owner": "-",
         "dependencies": "-",
-        "file": "task/T-001-task-title.md",
-        "path": "task/T-001-task-title.md",
-        "hasAcceptanceCriteria": true,
-        "hasTestCommand": true,
-        "hasDefinitionOfDone": true
+        "file": null,
+        "path": null,
+        "hasAcceptanceCriteria": false,
+        "hasTestCommand": false,
+        "hasDefinitionOfDone": false
     },
     {
         "task": "change init behavior",
