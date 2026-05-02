@@ -4,6 +4,7 @@ import { buildWorksetContext } from "./context.js";
 import { TASK_REGISTRY_PATH } from "../src/scan/constants.js";
 import { exists, listDirSafe, readText, writeText } from "../src/scan/fs-utils.js";
 import { evaluateContextLoop } from "../src/loop/analyze.js";
+import { resolveBudgetMode } from "../src/budget/policy.js";
 import {
     appendTaskToRegistry,
     ensureTaskRegistry,
@@ -24,6 +25,26 @@ const PR_LIMITS = {
     default: 14000,
     deep: 20000,
 };
+
+function renderLoopSignals(taskId, taskTitle) {
+    const result = evaluateContextLoop({ taskId, requestedTitle: taskTitle });
+    const last = result.mostRecentTest;
+    const lastSummary = last
+        ? `${Number(last.exitCode) === 0 ? "pass" : "fail"} (exit ${last.exitCode ?? "?"})${last.command ? `: ${last.command}` : ""}`
+        : "-";
+    const topFail = result.patterns.topFailingCommands?.[0]?.command ?? "-";
+
+    return [
+        "## Context Loop Signals",
+        "",
+        `- block_new_task: ${result.constraints.blockNewTask ? "true" : "false"}`,
+        `- unstable: ${result.constraints.unstable ? "true" : "false"}`,
+        `- last_test: ${lastSummary}`,
+        `- failure_streak: ${result.patterns.failureStreak}`,
+        `- top_failing_command: ${topFail}`,
+        `- require_rca: ${result.constraints.requireRootCauseAnalysis ? "true" : "false"}`,
+    ].join("\n");
+}
 
 function toTitleCase(slug) {
     return slug
@@ -413,11 +434,22 @@ function summarizeTaskDetailForPrompt(taskDetail) {
 }
 
 function buildTaskPrDescription(taskId, options = {}) {
-    const deep = Boolean(options.deep);
-    const fullWorkset = Boolean(options.fullWorkset);
-    const maxChars = deep ? PR_LIMITS.deep : PR_LIMITS.default;
+    const budget = options.budget || "off";
+    let deep = Boolean(options.deep);
+    let fullWorkset = Boolean(options.fullWorkset);
+    let manifest = Boolean(options.manifest);
+    let verbose = Boolean(options.verbose);
+    let maxChars = deep ? PR_LIMITS.deep : PR_LIMITS.default;
     const warnings = [];
     const registry = parseTaskRegistry();
+
+    if (budget === "full") {
+        if (!options.deepLocked) deep = true;
+        if (!options.fullWorksetLocked) fullWorkset = true;
+        if (!options.manifestLocked) manifest = true;
+        if (!options.verboseLocked) verbose = true;
+        maxChars = deep ? PR_LIMITS.deep : PR_LIMITS.default;
+    }
 
     if (!taskId) {
         warnings.push("Missing task id.");
@@ -425,7 +457,7 @@ function buildTaskPrDescription(taskId, options = {}) {
             "# Pull Request Description",
             "Warning: missing task id.",
             "Usage: repo-context-kit task pr <taskId> [--deep]",
-        ], renderPrFooter({ taskId: null, deep, maxChars, warnings }, options), maxChars);
+        ], renderPrFooter({ taskId: null, deep, maxChars, warnings }, { ...options, manifest, verbose, budget }), maxChars);
     }
 
     if (!registry.exists) {
@@ -434,7 +466,7 @@ function buildTaskPrDescription(taskId, options = {}) {
             "# Pull Request Description",
             `Warning: ${TASK_REGISTRY_PATH} is missing.`,
             "A PR description could not be generated because the task registry is required to resolve task IDs.",
-        ], renderPrFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
+        ], renderPrFooter({ taskId, deep, maxChars, warnings }, { ...options, manifest, verbose, budget }), maxChars);
     }
 
     const task = findTaskById(registry, taskId);
@@ -445,16 +477,42 @@ function buildTaskPrDescription(taskId, options = {}) {
             "# Pull Request Description",
             `Warning: task not found: ${taskId}.`,
             `Check ${TASK_REGISTRY_PATH} for available task IDs.`,
-        ], renderPrFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
+        ], renderPrFooter({ taskId, deep, maxChars, warnings }, { ...options, manifest, verbose, budget }), maxChars);
     }
 
     const taskDetail = readTaskDetail(task, warnings);
-    const workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
     const goal = extractSection(taskDetail, "Goal") || "Address the selected task using the available registry metadata and workset context.";
     const scope = extractSection(taskDetail, "Scope");
     const acceptanceCriteria = extractSection(taskDetail, "Acceptance Criteria");
-    const riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
-    const relatedFiles = extractWorksetSection(workset, "Related File Candidates");
+    const loopResult = budget === "auto" || budget === "full"
+        ? evaluateContextLoop({ taskId: task.id, requestedTitle: task.title })
+        : null;
+    const hasFailedTest = Boolean(loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0);
+
+    let workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
+    let riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
+    let relatedFiles = extractWorksetSection(workset, "Related File Candidates");
+    const hasRiskAreas = Boolean(riskAreas && !riskAreas.includes("_No indexed risk areas were available._"));
+    const staleScan = workset.includes("Run repo-context-kit scan");
+    const exceptionBudget = budget === "auto" && Boolean(
+        hasFailedTest ||
+        loopResult?.constraints?.unstable ||
+        loopResult?.constraints?.requireRootCauseAnalysis ||
+        hasRiskAreas ||
+        staleScan,
+    );
+
+    if (exceptionBudget) {
+        if (!options.verboseLocked) verbose = true;
+        if (!options.fullWorksetLocked) fullWorkset = true;
+        if (!options.deepLocked && (hasFailedTest || hasRiskAreas || staleScan)) {
+            deep = true;
+        }
+        maxChars = deep ? PR_LIMITS.deep : PR_LIMITS.default;
+        workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
+        riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
+        relatedFiles = extractWorksetSection(workset, "Related File Candidates");
+    }
 
     if (workset.includes("Run repo-context-kit scan")) {
         warnings.push("Generated indexes may be missing or stale. Run repo-context-kit scan for richer workset context.");
@@ -494,6 +552,7 @@ function buildTaskPrDescription(taskId, options = {}) {
             `- dependencies: ${task.dependencies || "-"}`,
             `- file: ${task.file || "-"}`,
         ].join("\n"),
+        exceptionBudget ? renderLoopSignals(task.id, task.title) : null,
         [
             "## Scope",
             "",
@@ -535,17 +594,28 @@ function buildTaskPrDescription(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderPrFooter({ taskId: task.id, deep, maxChars, warnings }, options),
+        renderPrFooter({ taskId: task.id, deep, maxChars, warnings }, { ...options, deep, fullWorkset, manifest, verbose, budget }),
         maxChars,
     );
 }
 
 function buildTaskChecklist(taskId, options = {}) {
-    const deep = Boolean(options.deep);
-    const fullWorkset = Boolean(options.fullWorkset);
-    const maxChars = deep ? CHECKLIST_LIMITS.deep : CHECKLIST_LIMITS.default;
+    const budget = options.budget || "off";
+    let deep = Boolean(options.deep);
+    let fullWorkset = Boolean(options.fullWorkset);
+    let manifest = Boolean(options.manifest);
+    let verbose = Boolean(options.verbose);
+    let maxChars = deep ? CHECKLIST_LIMITS.deep : CHECKLIST_LIMITS.default;
     const warnings = [];
     const registry = parseTaskRegistry();
+
+    if (budget === "full") {
+        if (!options.deepLocked) deep = true;
+        if (!options.fullWorksetLocked) fullWorkset = true;
+        if (!options.manifestLocked) manifest = true;
+        if (!options.verboseLocked) verbose = true;
+        maxChars = deep ? CHECKLIST_LIMITS.deep : CHECKLIST_LIMITS.default;
+    }
 
     if (!taskId) {
         warnings.push("Missing task id.");
@@ -553,7 +623,7 @@ function buildTaskChecklist(taskId, options = {}) {
             "# Task Test Checklist",
             "Warning: missing task id.",
             "Usage: repo-context-kit task checklist <taskId> [--deep]",
-        ], renderChecklistFooter({ taskId: null, deep, maxChars, warnings }, options), maxChars);
+        ], renderChecklistFooter({ taskId: null, deep, maxChars, warnings }, { ...options, manifest, verbose, budget }), maxChars);
     }
 
     if (!registry.exists) {
@@ -562,7 +632,7 @@ function buildTaskChecklist(taskId, options = {}) {
             "# Task Test Checklist",
             `Warning: ${TASK_REGISTRY_PATH} is missing.`,
             "A checklist could not be generated because the task registry is required to resolve task IDs.",
-        ], renderChecklistFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
+        ], renderChecklistFooter({ taskId, deep, maxChars, warnings }, { ...options, manifest, verbose, budget }), maxChars);
     }
 
     const task = findTaskById(registry, taskId);
@@ -573,15 +643,41 @@ function buildTaskChecklist(taskId, options = {}) {
             "# Task Test Checklist",
             `Warning: task not found: ${taskId}.`,
             `Check ${TASK_REGISTRY_PATH} for available task IDs.`,
-        ], renderChecklistFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
+        ], renderChecklistFooter({ taskId, deep, maxChars, warnings }, { ...options, manifest, verbose, budget }), maxChars);
     }
 
     const taskDetail = readTaskDetail(task, warnings);
-    const workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
     const goal = extractSection(taskDetail, "Goal") || "Review task detail and registry metadata to confirm the intended outcome.";
     const acceptanceCriteria = extractSection(taskDetail, "Acceptance Criteria");
-    const riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
-    const likelyTestFiles = getLikelyTestFiles(workset);
+    const loopResult = budget === "auto" || budget === "full"
+        ? evaluateContextLoop({ taskId: task.id, requestedTitle: task.title })
+        : null;
+    const hasFailedTest = Boolean(loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0);
+
+    let workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
+    let riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
+    let likelyTestFiles = getLikelyTestFiles(workset);
+    const hasRiskAreas = Boolean(riskAreas && !riskAreas.includes("_No indexed risk areas were available._"));
+    const staleScan = workset.includes("Run repo-context-kit scan");
+    const exceptionBudget = budget === "auto" && Boolean(
+        hasFailedTest ||
+        loopResult?.constraints?.unstable ||
+        loopResult?.constraints?.requireRootCauseAnalysis ||
+        hasRiskAreas ||
+        staleScan,
+    );
+
+    if (exceptionBudget) {
+        if (!options.verboseLocked) verbose = true;
+        if (!options.fullWorksetLocked) fullWorkset = true;
+        if (!options.deepLocked && (hasFailedTest || hasRiskAreas || staleScan)) {
+            deep = true;
+        }
+        maxChars = deep ? CHECKLIST_LIMITS.deep : CHECKLIST_LIMITS.default;
+        workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
+        riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
+        likelyTestFiles = getLikelyTestFiles(workset);
+    }
 
     if (workset.includes("Run repo-context-kit scan")) {
         warnings.push("Generated indexes may be missing or stale. Run repo-context-kit scan for richer workset context.");
@@ -611,6 +707,7 @@ function buildTaskChecklist(taskId, options = {}) {
             "",
             goal,
         ].join("\n"),
+        exceptionBudget ? renderLoopSignals(task.id, task.title) : null,
         [
             "## Acceptance Criteria Checklist",
             "",
@@ -658,26 +755,43 @@ function buildTaskChecklist(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderChecklistFooter({ taskId: task.id, deep, maxChars, warnings }, options),
+        renderChecklistFooter({ taskId: task.id, deep, maxChars, warnings }, { ...options, deep, fullWorkset, manifest, verbose, budget }),
         maxChars,
     );
 }
 
 function buildTaskPrompt(taskId, options = {}) {
-    const deep = Boolean(options.deep);
-    const fullWorkset = Boolean(options.fullWorkset);
-    const fullDetail = Boolean(options.fullDetail);
-    const compact = Boolean(options.compact);
-    const maxChars = deep ? PROMPT_LIMITS.deep : PROMPT_LIMITS.default;
+    const budget = options.budget || "off";
+    let deep = Boolean(options.deep);
+    let fullWorkset = Boolean(options.fullWorkset);
+    let fullDetail = Boolean(options.fullDetail);
+    let compact = Boolean(options.compact);
+    let manifest = Boolean(options.manifest);
+    let verbose = Boolean(options.verbose);
+    let maxChars = deep ? PROMPT_LIMITS.deep : PROMPT_LIMITS.default;
     const warnings = [];
     const registry = parseTaskRegistry();
+
+    if (budget === "auto" && !options.compactLocked) {
+        compact = true;
+    }
+
+    if (budget === "full") {
+        if (!options.deepLocked) deep = true;
+        if (!options.fullWorksetLocked) fullWorkset = true;
+        if (!options.fullDetailLocked) fullDetail = true;
+        if (!options.compactLocked) compact = false;
+        if (!options.manifestLocked) manifest = true;
+        if (!options.verboseLocked) verbose = true;
+        maxChars = deep ? PROMPT_LIMITS.deep : PROMPT_LIMITS.default;
+    }
 
     if (!taskId) {
         warnings.push("Missing task id.");
         return renderBoundedPrompt([
             "# Task Implementation Prompt",
             "Warning: missing task id.",
-            "Usage: repo-context-kit task prompt <taskId> [--deep] [--compact] [--full-detail] [--full-workset] [--manifest] [--verbose]",
+            "Usage: repo-context-kit task prompt <taskId> [--deep] [--compact] [--full-detail] [--full-workset] [--manifest] [--verbose] [--budget auto|off|full]",
         ], renderPromptFooter({ taskId: null, deep, maxChars, warnings }, options), maxChars);
     }
 
@@ -702,9 +816,36 @@ function buildTaskPrompt(taskId, options = {}) {
     }
 
     const taskDetail = readTaskDetail(task, warnings);
+    const loopResult = budget === "auto" || budget === "full"
+        ? evaluateContextLoop({ taskId: task.id, requestedTitle: task.title })
+        : null;
+    const hasFailedTest = Boolean(loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0);
+    let workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
+    const riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
+    const hasRiskAreas = Boolean(riskAreas && !riskAreas.includes("_No indexed risk areas were available._"));
+    const staleScan = workset.includes("Run repo-context-kit scan");
+    const exceptionBudget = budget === "auto" && Boolean(
+        hasFailedTest ||
+        loopResult?.constraints?.unstable ||
+        loopResult?.constraints?.requireRootCauseAnalysis ||
+        hasRiskAreas ||
+        staleScan,
+    );
+
+    if (exceptionBudget) {
+        if (!options.verboseLocked) verbose = true;
+        if (!options.fullDetailLocked) fullDetail = true;
+        if (!options.fullWorksetLocked) fullWorkset = true;
+        if (!options.deepLocked && (hasFailedTest || hasRiskAreas || staleScan)) {
+            deep = true;
+        }
+        maxChars = deep ? PROMPT_LIMITS.deep : PROMPT_LIMITS.default;
+        workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
+    }
+
     const taskDetailForPrompt = fullDetail ? taskDetail : summarizeTaskDetailForPrompt(taskDetail);
-    const workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
     const dependencySummaries = getDependencySummaries(task, registry);
+    const effectiveOptions = { ...options, deep, fullWorkset, fullDetail, compact, manifest, verbose, budget };
     const parts = [
         "# Task Implementation Prompt",
         compact
@@ -785,6 +926,7 @@ function buildTaskPrompt(taskId, options = {}) {
                   "- Do not edit generated `.aidw/index/*` files manually.",
                   "- If context is insufficient, ask for specific missing inputs.",
               ].join("\n"),
+        exceptionBudget ? renderLoopSignals(task.id, task.title) : null,
         [
             "## Required Final Response Format",
             "",
@@ -802,7 +944,7 @@ function buildTaskPrompt(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderPromptFooter({ taskId: task.id, deep, maxChars, warnings }, options),
+        renderPromptFooter({ taskId: task.id, deep, maxChars, warnings }, effectiveOptions),
         maxChars,
     );
 }
@@ -814,14 +956,26 @@ export async function runTask(args = []) {
     const compact = args.includes("--compact");
     const manifest = args.includes("--manifest");
     const verbose = args.includes("--verbose");
+    const budget = resolveBudgetMode(args);
+    const deepLocked = args.includes("--deep");
+    const fullWorksetLocked = args.includes("--full-workset");
+    const fullDetailLocked = args.includes("--full-detail");
+    const compactLocked = args.includes("--compact");
+    const manifestLocked = args.includes("--manifest");
+    const verboseLocked = args.includes("--verbose");
 
     if (subcommand === "pr") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
         const output = buildTaskPrDescription(taskId, {
-            deep: args.includes("--deep"),
+            deep: deepLocked,
             fullWorkset,
             manifest,
             verbose,
+            budget,
+            deepLocked,
+            fullWorksetLocked,
+            manifestLocked,
+            verboseLocked,
         });
 
         console.log(output.trimEnd());
@@ -834,10 +988,15 @@ export async function runTask(args = []) {
     if (subcommand === "checklist") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
         const output = buildTaskChecklist(taskId, {
-            deep: args.includes("--deep"),
+            deep: deepLocked,
             fullWorkset,
             manifest,
             verbose,
+            budget,
+            deepLocked,
+            fullWorksetLocked,
+            manifestLocked,
+            verboseLocked,
         });
 
         console.log(output.trimEnd());
@@ -850,12 +1009,19 @@ export async function runTask(args = []) {
     if (subcommand === "prompt") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
         const output = buildTaskPrompt(taskId, {
-            deep: args.includes("--deep"),
+            deep: deepLocked,
             fullWorkset,
             fullDetail,
             compact,
             manifest,
             verbose,
+            budget,
+            deepLocked,
+            fullWorksetLocked,
+            fullDetailLocked,
+            compactLocked,
+            manifestLocked,
+            verboseLocked,
         });
 
         console.log(output.trimEnd());

@@ -14,6 +14,7 @@ import { listTaskFiles } from "../src/scan/task-files.js";
 import { getRegistryStatusBreakdown, parseTaskRegistry } from "../src/scan/task-registry.js";
 import { formatLoopEventsMarkdown, listRecentLoopEvents } from "../src/loop/store.js";
 import { evaluateContextLoop } from "../src/loop/analyze.js";
+import { resolveBudgetMode } from "../src/budget/policy.js";
 import { getCachedBriefDigest, writeBriefDigestCache } from "../src/loop/context-cache.js";
 
 const LIMITS = {
@@ -625,7 +626,7 @@ function buildNextTask(options = {}) {
     const warnings = [];
     const registry = parseTaskRegistry();
     warnings.push(...findTaskFileMismatchWarnings(registry));
-    const digest = Boolean(options.digest);
+    let digest = Boolean(options.digest);
 
     if (!registry.exists) {
         return renderBounded(["# Next Task Context", "No task registry is available."], {
@@ -650,7 +651,25 @@ function buildNextTask(options = {}) {
         }, LIMITS["next-task"].maxChars);
     }
 
-    const taskContext = buildTaskContext(task, registry, "next-task", LIMITS["next-task"], warnings, options);
+    const loopResult = options.budget === "auto" || options.budget === "full"
+        ? evaluateContextLoop({ taskId: task.id })
+        : null;
+    const hasFailedTest = Boolean(loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0);
+    const exceptionBudget = Boolean(hasFailedTest || loopResult?.constraints?.unstable || loopResult?.constraints?.requireRootCauseAnalysis);
+
+    if (options.budget === "full" && !options.digestLocked) {
+        digest = false;
+    } else if (options.budget === "auto" && exceptionBudget && !options.digestLocked) {
+        digest = false;
+    }
+
+    const effectiveOptions = {
+        ...options,
+        digest,
+        verbose: options.verbose || (exceptionBudget && options.budget === "auto"),
+    };
+
+    const taskContext = buildTaskContext(task, registry, "next-task", LIMITS["next-task"], warnings, effectiveOptions);
 
     return renderBounded(taskContext.parts, {
         level: "next-task",
@@ -664,7 +683,7 @@ function buildNextTask(options = {}) {
         ],
         limits: `maxChars=${LIMITS["next-task"].maxChars}, maxDependencySummaries=${LIMITS["next-task"].maxDependencySummaries}`,
         warnings,
-    }, LIMITS["next-task"].maxChars, options);
+    }, LIMITS["next-task"].maxChars, effectiveOptions);
 }
 
 function selectDigestSymbols(symbols = [], maxTotal = 8) {
@@ -783,12 +802,46 @@ function buildWorksetDigest(taskId, warnings = [], options = {}) {
 }
 
 function buildWorkset(taskId, options = {}) {
-    const deep = Boolean(options.deep);
-    const digest = Boolean(options.digest) || options.mode === "digest";
+    let deep = Boolean(options.deep);
+    let digest = Boolean(options.digest) || options.mode === "digest";
+
+    const loopResult = (options.budget === "auto" || options.budget === "full") && taskId
+        ? evaluateContextLoop({ taskId })
+        : null;
+    const hasFailedTest = Boolean(loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0);
+    const exceptionBudget = Boolean(hasFailedTest || loopResult?.constraints?.unstable || loopResult?.constraints?.requireRootCauseAnalysis);
+
+    if (options.budget === "full") {
+        if (!options.deepLocked) {
+            deep = true;
+        }
+        if (!options.digestLocked) {
+            digest = false;
+        }
+    } else if (options.budget === "auto" && exceptionBudget) {
+        if (!options.digestLocked) {
+            digest = false;
+        }
+    }
+
+    if (options.budget === "auto" && digest && !deep && !options.digestLocked) {
+        const project = readProjectContext();
+        if (project?.riskAreas) {
+            digest = false;
+        }
+    }
+
+    const effectiveOptions = {
+        ...options,
+        deep,
+        digest,
+        verbose: options.verbose || (exceptionBudget && options.budget === "auto"),
+        rawLoop: options.rawLoop || (exceptionBudget && options.budget === "auto"),
+    };
 
     if (digest && !deep) {
         const warnings = [];
-        return buildWorksetDigest(taskId, warnings, options);
+        return buildWorksetDigest(taskId, warnings, effectiveOptions);
     }
 
     const level = deep ? "workset --deep" : "workset";
@@ -833,8 +886,8 @@ function buildWorkset(taskId, options = {}) {
         }, limits.maxChars);
     }
 
-    const brief = buildBrief({ ...options, digest: true }).replace(/^## Context Meta[\s\S]*$/m, "").trim();
-    const taskContext = buildTaskContext(task, registry, "workset", limits, warnings, options);
+    const brief = buildBrief({ ...effectiveOptions, digest: true }).replace(/^## Context Meta[\s\S]*$/m, "").trim();
+    const taskContext = buildTaskContext(task, registry, "workset", limits, warnings, effectiveOptions);
     const relatedFiles = selectRelatedFiles(task, taskContext.detailContent, limits, warnings);
     const relatedSymbols = selectRelatedSymbols(task, taskContext.detailContent, relatedFiles, limits, warnings);
     const entrypoints = readJson(CONTEXT_INDEX_ENTRYPOINTS_PATH);
@@ -888,7 +941,7 @@ function buildWorkset(taskId, options = {}) {
         excludedSources: ["unselected task detail files", "full files.json dump", "full symbols.json dump"],
         limits: `maxChars=${limits.maxChars}, maxRelatedFiles=${limits.maxRelatedFiles}, maxRelatedSymbols=${limits.maxRelatedSymbols}, maxDependencySummaries=${limits.maxDependencySummaries}`,
         warnings,
-    }, limits.maxChars, options);
+    }, limits.maxChars, effectiveOptions);
 }
 
 export function buildWorksetContext(taskId, options = {}) {
@@ -905,25 +958,59 @@ export async function runContext(args = []) {
     const verbose = args.includes("--verbose");
     const rawLoop = args.includes("--raw-loop");
     const summaryJson = args.includes("--summary-json");
+    const budget = resolveBudgetMode(args);
     const noCache = args.includes("--no-cache");
     let output;
 
     if (subcommand === "brief") {
-        const cached = digest && !noCache && !summaryJson ? getCachedBriefDigest() : null;
+        const loopResult = budget === "auto" || budget === "full"
+            ? evaluateContextLoop({ taskId: null })
+            : null;
+        const budgetUpgrade = Boolean(
+            (loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0) ||
+            loopResult?.constraints?.unstable ||
+            loopResult?.constraints?.requireRootCauseAnalysis,
+        );
+        const effectiveDigest = budget === "full" && !digestFlag ? false : digest;
+        const budgetVerbose = verbose || budget === "full" || (budgetUpgrade && budget === "auto");
+        const budgetRawLoop = rawLoop || budget === "full" || (budgetUpgrade && budget === "auto");
+        const cached = effectiveDigest && !noCache && !summaryJson && budget === "off" ? getCachedBriefDigest() : null;
         if (cached) {
             output = cached;
         } else {
-            output = buildBrief({ digest, manifest, verbose, rawLoop, summaryJson });
-            if (digest && !noCache && !summaryJson) {
+            output = buildBrief({
+                digest: effectiveDigest,
+                manifest,
+                verbose: budgetVerbose,
+                rawLoop: budgetRawLoop,
+                summaryJson,
+            });
+            if (effectiveDigest && !noCache && !summaryJson && budget === "off") {
                 writeBriefDigestCache(output);
             }
         }
     } else if (subcommand === "next-task") {
-        output = buildNextTask({ digest, manifest, verbose, rawLoop });
+        output = buildNextTask({
+            digest,
+            manifest,
+            verbose,
+            rawLoop,
+            budget,
+            digestLocked: digestFlag || full,
+        });
     } else if (subcommand === "workset") {
         const worksetIndex = args.indexOf("workset");
         const taskId = args.slice(worksetIndex + 1).find((arg) => !arg.startsWith("--"));
-        output = buildWorkset(taskId, { deep, digest: digestFlag || (!deep && !full), manifest, verbose, rawLoop });
+        output = buildWorkset(taskId, {
+            deep,
+            digest: digestFlag || (!deep && !full),
+            manifest,
+            verbose,
+            rawLoop,
+            budget,
+            digestLocked: digestFlag || full,
+            deepLocked: deep,
+        });
     } else {
         console.error("Unknown context command.");
         console.log("Usage:");
@@ -936,6 +1023,7 @@ export async function runContext(args = []) {
         console.log("  --verbose    Print all warnings instead of summarizing");
         console.log("  --raw-loop   Include raw recent loop events in addition to digest");
         console.log("  --summary-json  Print scan summary as JSON (brief only)");
+        console.log("  --budget     Budget policy: off | auto | full (also via REPO_CONTEXT_KIT_BUDGET)");
         console.log("  --no-cache   Disable brief digest cache");
         process.exitCode = 1;
         return {

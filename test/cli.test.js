@@ -1613,6 +1613,32 @@ seed
         });
     });
 
+    await t.test("context brief --budget auto upgrades on recent test failure", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "scan-target" }));
+            writeFile(
+                ".aidw/context-loop.jsonl",
+                `${JSON.stringify({
+                    at: "2026-01-01T00:00:00.000Z",
+                    type: "test",
+                    taskId: "T-001",
+                    ok: false,
+                    exitCode: 1,
+                    command: "npm test",
+                })}\n`,
+            );
+
+            const { output } = await withCapturedConsole(() =>
+                runContext(["brief", "--budget", "auto"]),
+            );
+            const text = output.join("\n");
+
+            assert.match(text, /Context Loop Digest/);
+            assert.match(text, /Recent Context Loop \(Raw\)/);
+        });
+    });
+
     await t.test("context next-task selects in-progress before todo and reads only selected detail file", async () => {
         await withTempProject(async () => {
             writeFile(
@@ -1904,6 +1930,53 @@ Generate AI-ready prompts.
             assert.match(text, /- owner: dev/);
             assert.match(text, /Generate AI-ready prompts/);
             assert.match(text, /## Required Final Response Format/);
+        });
+    });
+
+    await t.test("task prompt --budget auto defaults to compact and upgrades on failing tests", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Budget task | todo | high | dev | - | [T-001](./T-001-budget.md) |
+`,
+            );
+            writeFile(
+                "task/T-001-budget.md",
+                `# T-001 Budget task
+
+## Goal
+
+Confirm budget policy upgrades.
+`,
+            );
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+            writeFile(
+                ".aidw/context-loop.jsonl",
+                `${JSON.stringify({
+                    at: "2026-01-01T00:00:00.000Z",
+                    type: "test",
+                    taskId: "T-001",
+                    ok: false,
+                    exitCode: 1,
+                    command: "npm test",
+                })}\n`,
+            );
+
+            const { output } = await withCapturedConsole(() =>
+                runTask(["prompt", "T-001", "--budget", "auto"]),
+            );
+            const text = output.join("\n");
+
+            assert.match(text, /## Rules/);
+            assert.match(text, /## Context Loop Signals/);
         });
     });
 

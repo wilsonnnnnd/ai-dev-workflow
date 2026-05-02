@@ -55,6 +55,70 @@ npx repo-context-kit task pr T-001 --deep
 
 These commands are bounded. They reuse the same progressive workset logic, avoid dumping full generated indexes, and do not execute tasks, tests, git commands, GitHub actions, or AI agents.
 
+## AI Automation Workflow (Preflight)
+
+This repo is set up for a task-driven loop that can be executed by an AI tool with explicit user confirmations:
+
+1) **Prepare the repo once**
+
+```bash
+npx repo-context-kit init
+npx repo-context-kit scan
+git add AGENTS.md skill.md .aidw .github .trae
+git commit -m "Add AI project context"
+```
+
+2) **Create (or select) a task**
+
+```bash
+npx repo-context-kit task new "Describe the change"
+```
+
+Then review the created `task/T-XXX-*.md` and confirm it includes:
+- clear scope (what is allowed vs not allowed)
+- acceptance criteria and a test command
+
+3) **Generate bounded context and a prompt for the AI tool**
+
+```bash
+npx repo-context-kit context brief
+npx repo-context-kit context next-task
+npx repo-context-kit context workset T-001
+npx repo-context-kit task prompt T-001 --compact
+```
+
+4) **Run tests through the confirmation gate (recommended)**
+
+```bash
+npx repo-context-kit gate confirm task T-001 --json
+npx repo-context-kit gate confirm tests T-001
+npx repo-context-kit gate run-test T-001 --token <token>
+```
+
+The gate is designed to block command execution until explicit confirmation is recorded.
+See `.aidw/confirmation-protocol.md` for the click-to-confirm state machine format.
+
+## Context Budget Policy
+
+Spend tokens where they change decisions (not everywhere).
+
+- Enable automatic policy (opt-in):
+  - `npx repo-context-kit <command> --budget auto`
+  - or set `REPO_CONTEXT_KIT_BUDGET=auto`
+- Full expansion:
+  - `--budget full` (or `REPO_CONTEXT_KIT_BUDGET=full`)
+
+- Default budget (cheap): `digest` + `--compact`
+  - Use `context brief` (no `--summary-json`), `context workset <taskId>` (default digest), and `task prompt <taskId> --compact`.
+- Exception budget (upgrade automatically): expand only when signals indicate higher uncertainty or risk:
+  - recent test failures (Context Loop)
+  - high-risk areas detected in the workset
+  - missing/unknown files, stale scan, or warnings about incomplete context
+  - Recommended upgrades: rerun `scan`, use `--deep`, add `--verbose`, use `--full-detail` / `--full-workset`, optionally add `--raw-loop`.
+- Full budget (explicit): expand when the user asks for it or the task is review-heavy:
+  - user explicitly requests `--full-*` / `--manifest`
+  - review requests (prompt/plan/implementation review) that benefit from extra context
+
 Lowest-token defaults:
 
 - Prefer `task prompt <taskId> --compact` and the default (digest) workset output.

@@ -10,6 +10,12 @@
 5. Run the task’s test command (prefer the confirmation gate when available).
 6. Report what changed, files changed, tests run, and remaining risks.
 
+## Context Budget Policy
+
+- Default: start with digest + compact outputs.
+- Upgrade only when it changes decisions (recent test failures, high risk areas, unknown/missing files, stale scan, or warnings).
+- Full: only on explicit request (`--full-*` / `--manifest`) or for review-heavy work.
+
 ## Rules
 
 - Keep scope tight; avoid unrelated changes and refactors.
