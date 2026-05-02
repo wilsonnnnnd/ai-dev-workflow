@@ -12,9 +12,10 @@ import {
 import { exists, listDirSafe, readJson, readText } from "../src/scan/fs-utils.js";
 import { listTaskFiles } from "../src/scan/task-files.js";
 import { getRegistryStatusBreakdown, parseTaskRegistry } from "../src/scan/task-registry.js";
-import { formatLoopEventsMarkdown, listRecentLoopEvents } from "../src/loop/store.js";
+import { appendLoopEvent, formatLoopEventsMarkdown, listRecentLoopEvents } from "../src/loop/store.js";
 import { evaluateContextLoop } from "../src/loop/analyze.js";
 import { resolveBudgetMode } from "../src/budget/policy.js";
+import { buildBudgetDecisionEvent, formatBudgetDecisionMarkdown } from "../src/budget/decision.js";
 import { getCachedBriefDigest, writeBriefDigestCache } from "../src/loop/context-cache.js";
 
 const LIMITS = {
@@ -444,25 +445,65 @@ function renderMeta(manifest, options = {}) {
 
 function renderBounded(bodyParts, manifest, maxChars, options = {}) {
     let body = bodyParts.filter(Boolean).join("\n\n").trim();
+    const budgetEnabled = options.budget === "auto" || options.budget === "full";
+    const uniqueWarnings = [...new Set(manifest.warnings)];
+    const budgetBlock = budgetEnabled
+        ? formatBudgetDecisionMarkdown(options.budgetDecision, { warningsCount: uniqueWarnings.length })
+        : "";
     const warningsBlock = renderWarningsSummary(manifest.warnings, options);
     const metaText = renderMeta(manifest, options);
-    const footerParts = [warningsBlock, metaText].filter(Boolean).join("\n\n");
+    const footerParts = [budgetBlock, warningsBlock, metaText].filter(Boolean).join("\n\n");
     let output = `${body}${footerParts ? `\n\n${footerParts}` : ""}\n`;
 
     if (output.length <= maxChars) {
+        if (budgetEnabled) {
+            const event = buildBudgetDecisionEvent(options.budgetDecision, {
+                taskId: manifest.taskId,
+                warningsCount: [...new Set(manifest.warnings)].length,
+                command: manifest.level,
+            });
+            if (event) {
+                appendLoopEvent(event);
+            }
+        }
         return output;
     }
 
     manifest.warnings.push(`Output exceeded ${maxChars} characters and was truncated.`);
+    const nextUniqueWarnings = [...new Set(manifest.warnings)];
+    const nextBudgetBlock = budgetEnabled
+        ? formatBudgetDecisionMarkdown(options.budgetDecision, { warningsCount: nextUniqueWarnings.length })
+        : "";
     const nextWarningsBlock = renderWarningsSummary(manifest.warnings, options);
     const nextMetaText = renderMeta(manifest, options);
-    const nextFooter = [nextWarningsBlock, nextMetaText].filter(Boolean).join("\n\n");
+    const nextFooter = [nextBudgetBlock, nextWarningsBlock, nextMetaText].filter(Boolean).join("\n\n");
     const bodyLimit = Math.max(0, maxChars - nextFooter.length - 20);
     body = truncateText(body, bodyLimit);
     output = `${body}${nextFooter ? `\n\n${nextFooter}` : ""}\n`;
 
     if (output.length <= maxChars) {
+        if (budgetEnabled) {
+            const event = buildBudgetDecisionEvent(options.budgetDecision, {
+                taskId: manifest.taskId,
+                warningsCount: [...new Set(manifest.warnings)].length,
+                command: manifest.level,
+            });
+            if (event) {
+                appendLoopEvent(event);
+            }
+        }
         return output;
+    }
+
+    if (budgetEnabled) {
+        const event = buildBudgetDecisionEvent(options.budgetDecision, {
+            taskId: manifest.taskId,
+            warningsCount: [...new Set(manifest.warnings)].length,
+            command: manifest.level,
+        });
+        if (event) {
+            appendLoopEvent(event);
+        }
     }
 
     return output.slice(0, Math.max(0, maxChars - 14)).trimEnd() + "\n[truncated]\n";
@@ -663,10 +704,37 @@ function buildNextTask(options = {}) {
         digest = false;
     }
 
+    const rawLoop = Boolean(options.rawLoop) || (exceptionBudget && options.budget === "auto") || options.budget === "full";
+    const verbose = Boolean(options.verbose) || (exceptionBudget && options.budget === "auto") || options.budget === "full";
+    const upgradesApplied = [];
+    if (Boolean(options.digest) && digest === false) upgradesApplied.push("digest-off");
+    if (!options.verbose && verbose) upgradesApplied.push("verbose");
+    if (!options.rawLoop && rawLoop) upgradesApplied.push("raw-loop");
+
+    const reasonCodes = [];
+    const evidence = [];
+    if (loopResult?.mostRecentTest) {
+        const exitCode = Number(loopResult.mostRecentTest.exitCode);
+        const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
+        if (Number.isFinite(exitCode) && exitCode !== 0) reasonCodes.push("RECENT_TEST_FAIL");
+        if (command) evidence.push(`last_test_exit=${exitCode} command="${command}"`);
+        else evidence.push(`last_test_exit=${exitCode}`);
+    }
+    if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
+    if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
+
     const effectiveOptions = {
         ...options,
         digest,
-        verbose: options.verbose || (exceptionBudget && options.budget === "auto"),
+        verbose,
+        rawLoop,
+        budgetDecision: {
+            mode: options.budget,
+            decision: options.budget === "full" ? "FULL" : exceptionBudget ? "EXCEPTION" : "DEFAULT",
+            upgradesApplied,
+            reasonCodes,
+            evidence,
+        },
     };
 
     const taskContext = buildTaskContext(task, registry, "next-task", LIMITS["next-task"], warnings, effectiveOptions);
@@ -810,6 +878,8 @@ function buildWorkset(taskId, options = {}) {
         : null;
     const hasFailedTest = Boolean(loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0);
     const exceptionBudget = Boolean(hasFailedTest || loopResult?.constraints?.unstable || loopResult?.constraints?.requireRootCauseAnalysis);
+    const projectRiskAreas = Boolean(readProjectContext()?.riskAreas);
+    const hasRiskAreasSignal = Boolean(projectRiskAreas);
 
     if (options.budget === "full") {
         if (!options.deepLocked) {
@@ -819,24 +889,52 @@ function buildWorkset(taskId, options = {}) {
             digest = false;
         }
     } else if (options.budget === "auto" && exceptionBudget) {
+        if (!options.deepLocked) {
+            deep = true;
+        }
         if (!options.digestLocked) {
             digest = false;
         }
     }
 
-    if (options.budget === "auto" && digest && !deep && !options.digestLocked) {
-        const project = readProjectContext();
-        if (project?.riskAreas) {
-            digest = false;
-        }
+    if (options.budget === "auto" && digest && !options.digestLocked && hasRiskAreasSignal) {
+        digest = false;
     }
+
+    const rawLoop = Boolean(options.rawLoop) || (exceptionBudget && options.budget === "auto") || options.budget === "full";
+    const verbose = Boolean(options.verbose) || (exceptionBudget && options.budget === "auto") || options.budget === "full";
+    const upgradesApplied = [];
+    if (!options.deep && deep) upgradesApplied.push("deep");
+    if (Boolean(options.digest) && digest === false) upgradesApplied.push("digest-off");
+    if (!options.verbose && verbose) upgradesApplied.push("verbose");
+    if (!options.rawLoop && rawLoop) upgradesApplied.push("raw-loop");
+
+    const reasonCodes = [];
+    const evidence = [];
+    if (loopResult?.mostRecentTest) {
+        const exitCode = Number(loopResult.mostRecentTest.exitCode);
+        const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
+        if (Number.isFinite(exitCode) && exitCode !== 0) reasonCodes.push("RECENT_TEST_FAIL");
+        if (command) evidence.push(`last_test_exit=${exitCode} command="${command}"`);
+        else evidence.push(`last_test_exit=${exitCode}`);
+    }
+    if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
+    if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
+    if (options.budget === "auto" && hasRiskAreasSignal) reasonCodes.push("HIGH_RISK_AREAS");
 
     const effectiveOptions = {
         ...options,
         deep,
         digest,
-        verbose: options.verbose || (exceptionBudget && options.budget === "auto"),
-        rawLoop: options.rawLoop || (exceptionBudget && options.budget === "auto"),
+        verbose,
+        rawLoop,
+        budgetDecision: {
+            mode: options.budget,
+            decision: options.budget === "full" ? "FULL" : (exceptionBudget || hasRiskAreasSignal) ? "EXCEPTION" : "DEFAULT",
+            upgradesApplied,
+            reasonCodes,
+            evidence,
+        },
     };
 
     if (digest && !deep) {
@@ -974,6 +1072,31 @@ export async function runContext(args = []) {
         const effectiveDigest = budget === "full" && !digestFlag ? false : digest;
         const budgetVerbose = verbose || budget === "full" || (budgetUpgrade && budget === "auto");
         const budgetRawLoop = rawLoop || budget === "full" || (budgetUpgrade && budget === "auto");
+        const upgradesApplied = [];
+        if (digest && effectiveDigest === false) upgradesApplied.push("digest-off");
+        if (!verbose && budgetVerbose) upgradesApplied.push("verbose");
+        if (!rawLoop && budgetRawLoop) upgradesApplied.push("raw-loop");
+        const reasonCodes = [];
+        const evidence = [];
+        if (loopResult?.mostRecentTest) {
+            const exitCode = Number(loopResult.mostRecentTest.exitCode);
+            const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
+            if (Number.isFinite(exitCode) && exitCode !== 0) reasonCodes.push("RECENT_TEST_FAIL");
+            if (command) evidence.push(`last_test_exit=${exitCode} command="${command}"`);
+            else evidence.push(`last_test_exit=${exitCode}`);
+        }
+        if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
+        if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
+
+        const budgetDecision = budget === "off"
+            ? null
+            : {
+                  mode: budget,
+                  decision: budget === "full" ? "FULL" : budgetUpgrade ? "EXCEPTION" : "DEFAULT",
+                  upgradesApplied,
+                  reasonCodes,
+                  evidence,
+              };
         const cached = effectiveDigest && !noCache && !summaryJson && budget === "off" ? getCachedBriefDigest() : null;
         if (cached) {
             output = cached;
@@ -984,6 +1107,8 @@ export async function runContext(args = []) {
                 verbose: budgetVerbose,
                 rawLoop: budgetRawLoop,
                 summaryJson,
+                budget,
+                budgetDecision,
             });
             if (effectiveDigest && !noCache && !summaryJson && budget === "off") {
                 writeBriefDigestCache(output);

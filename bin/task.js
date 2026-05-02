@@ -4,7 +4,9 @@ import { buildWorksetContext } from "./context.js";
 import { TASK_REGISTRY_PATH } from "../src/scan/constants.js";
 import { exists, listDirSafe, readText, writeText } from "../src/scan/fs-utils.js";
 import { evaluateContextLoop } from "../src/loop/analyze.js";
+import { appendLoopEvent } from "../src/loop/store.js";
 import { resolveBudgetMode } from "../src/budget/policy.js";
+import { buildBudgetDecisionEvent, formatBudgetDecisionMarkdown } from "../src/budget/decision.js";
 import {
     appendTaskToRegistry,
     ensureTaskRegistry,
@@ -337,9 +339,27 @@ function renderTaskOutputMeta(
 }
 
 function renderTaskOutputFooter(manifestOptions, options = {}) {
+    const warningsUnique = [...new Set(manifestOptions.warnings)];
+    const budgetEnabled = options.budget === "auto" || options.budget === "full";
+    const budgetBlock = budgetEnabled
+        ? formatBudgetDecisionMarkdown(options.budgetDecision, { warningsCount: warningsUnique.length })
+        : "";
     const warningsBlock = renderWarningsSummary(manifestOptions.warnings, options);
     const metaBlock = renderTaskOutputMeta(manifestOptions, options);
-    return [warningsBlock, metaBlock].filter(Boolean).join("\n\n");
+    const footer = [budgetBlock, warningsBlock, metaBlock].filter(Boolean).join("\n\n");
+
+    if (budgetEnabled) {
+        const event = buildBudgetDecisionEvent(options.budgetDecision, {
+            taskId: manifestOptions.taskId,
+            warningsCount: warningsUnique.length,
+            command: manifestOptions.level,
+        });
+        if (event) {
+            appendLoopEvent(event);
+        }
+    }
+
+    return footer;
 }
 
 function renderPromptFooter(options, outputOptions) {
@@ -435,6 +455,12 @@ function summarizeTaskDetailForPrompt(taskDetail) {
 
 function buildTaskPrDescription(taskId, options = {}) {
     const budget = options.budget || "off";
+    const base = {
+        deep: Boolean(options.deep),
+        fullWorkset: Boolean(options.fullWorkset),
+        manifest: Boolean(options.manifest),
+        verbose: Boolean(options.verbose),
+    };
     let deep = Boolean(options.deep);
     let fullWorkset = Boolean(options.fullWorkset);
     let manifest = Boolean(options.manifest);
@@ -513,6 +539,39 @@ function buildTaskPrDescription(taskId, options = {}) {
         riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
         relatedFiles = extractWorksetSection(workset, "Related File Candidates");
     }
+
+    const upgradesApplied = [];
+    if (!base.deep && deep) upgradesApplied.push("deep");
+    if (!base.fullWorkset && fullWorkset) upgradesApplied.push("full-workset");
+    if (!base.manifest && manifest) upgradesApplied.push("manifest");
+    if (!base.verbose && verbose) upgradesApplied.push("verbose");
+    const reasonCodes = [];
+    const evidence = [];
+    if (hasFailedTest && loopResult?.mostRecentTest) {
+        reasonCodes.push("RECENT_TEST_FAIL");
+        const exitCode = Number(loopResult.mostRecentTest.exitCode);
+        const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
+        evidence.push(command ? `last_test_exit=${exitCode} command="${command}"` : `last_test_exit=${exitCode}`);
+    }
+    if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
+    if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
+    if (hasRiskAreas) {
+        reasonCodes.push("HIGH_RISK_AREAS");
+        evidence.push("risk_areas_present=true");
+    }
+    if (staleScan) {
+        reasonCodes.push("STALE_SCAN");
+        evidence.push("stale_scan_hint=true");
+    }
+    const budgetDecision = budget === "off"
+        ? null
+        : {
+              mode: budget,
+              decision: budget === "full" ? "FULL" : exceptionBudget ? "EXCEPTION" : "DEFAULT",
+              upgradesApplied,
+              reasonCodes,
+              evidence,
+          };
 
     if (workset.includes("Run repo-context-kit scan")) {
         warnings.push("Generated indexes may be missing or stale. Run repo-context-kit scan for richer workset context.");
@@ -594,13 +653,22 @@ function buildTaskPrDescription(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderPrFooter({ taskId: task.id, deep, maxChars, warnings }, { ...options, deep, fullWorkset, manifest, verbose, budget }),
+        renderPrFooter(
+            { taskId: task.id, deep, maxChars, warnings },
+            { ...options, deep, fullWorkset, manifest, verbose, budget, budgetDecision },
+        ),
         maxChars,
     );
 }
 
 function buildTaskChecklist(taskId, options = {}) {
     const budget = options.budget || "off";
+    const base = {
+        deep: Boolean(options.deep),
+        fullWorkset: Boolean(options.fullWorkset),
+        manifest: Boolean(options.manifest),
+        verbose: Boolean(options.verbose),
+    };
     let deep = Boolean(options.deep);
     let fullWorkset = Boolean(options.fullWorkset);
     let manifest = Boolean(options.manifest);
@@ -679,6 +747,39 @@ function buildTaskChecklist(taskId, options = {}) {
         likelyTestFiles = getLikelyTestFiles(workset);
     }
 
+    const upgradesApplied = [];
+    if (!base.deep && deep) upgradesApplied.push("deep");
+    if (!base.fullWorkset && fullWorkset) upgradesApplied.push("full-workset");
+    if (!base.manifest && manifest) upgradesApplied.push("manifest");
+    if (!base.verbose && verbose) upgradesApplied.push("verbose");
+    const reasonCodes = [];
+    const evidence = [];
+    if (hasFailedTest && loopResult?.mostRecentTest) {
+        reasonCodes.push("RECENT_TEST_FAIL");
+        const exitCode = Number(loopResult.mostRecentTest.exitCode);
+        const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
+        evidence.push(command ? `last_test_exit=${exitCode} command="${command}"` : `last_test_exit=${exitCode}`);
+    }
+    if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
+    if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
+    if (hasRiskAreas) {
+        reasonCodes.push("HIGH_RISK_AREAS");
+        evidence.push("risk_areas_present=true");
+    }
+    if (staleScan) {
+        reasonCodes.push("STALE_SCAN");
+        evidence.push("stale_scan_hint=true");
+    }
+    const budgetDecision = budget === "off"
+        ? null
+        : {
+              mode: budget,
+              decision: budget === "full" ? "FULL" : exceptionBudget ? "EXCEPTION" : "DEFAULT",
+              upgradesApplied,
+              reasonCodes,
+              evidence,
+          };
+
     if (workset.includes("Run repo-context-kit scan")) {
         warnings.push("Generated indexes may be missing or stale. Run repo-context-kit scan for richer workset context.");
     }
@@ -755,13 +856,24 @@ function buildTaskChecklist(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderChecklistFooter({ taskId: task.id, deep, maxChars, warnings }, { ...options, deep, fullWorkset, manifest, verbose, budget }),
+        renderChecklistFooter(
+            { taskId: task.id, deep, maxChars, warnings },
+            { ...options, deep, fullWorkset, manifest, verbose, budget, budgetDecision },
+        ),
         maxChars,
     );
 }
 
 function buildTaskPrompt(taskId, options = {}) {
     const budget = options.budget || "off";
+    const base = {
+        deep: Boolean(options.deep),
+        fullWorkset: Boolean(options.fullWorkset),
+        fullDetail: Boolean(options.fullDetail),
+        compact: Boolean(options.compact),
+        manifest: Boolean(options.manifest),
+        verbose: Boolean(options.verbose),
+    };
     let deep = Boolean(options.deep);
     let fullWorkset = Boolean(options.fullWorkset);
     let fullDetail = Boolean(options.fullDetail);
@@ -845,7 +957,41 @@ function buildTaskPrompt(taskId, options = {}) {
 
     const taskDetailForPrompt = fullDetail ? taskDetail : summarizeTaskDetailForPrompt(taskDetail);
     const dependencySummaries = getDependencySummaries(task, registry);
-    const effectiveOptions = { ...options, deep, fullWorkset, fullDetail, compact, manifest, verbose, budget };
+    const upgradesApplied = [];
+    if (!base.compact && compact) upgradesApplied.push("compact");
+    if (!base.deep && deep) upgradesApplied.push("deep");
+    if (!base.fullWorkset && fullWorkset) upgradesApplied.push("full-workset");
+    if (!base.fullDetail && fullDetail) upgradesApplied.push("full-detail");
+    if (!base.manifest && manifest) upgradesApplied.push("manifest");
+    if (!base.verbose && verbose) upgradesApplied.push("verbose");
+    const reasonCodes = [];
+    const evidence = [];
+    if (hasFailedTest && loopResult?.mostRecentTest) {
+        reasonCodes.push("RECENT_TEST_FAIL");
+        const exitCode = Number(loopResult.mostRecentTest.exitCode);
+        const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
+        evidence.push(command ? `last_test_exit=${exitCode} command="${command}"` : `last_test_exit=${exitCode}`);
+    }
+    if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
+    if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
+    if (hasRiskAreas) {
+        reasonCodes.push("HIGH_RISK_AREAS");
+        evidence.push("risk_areas_present=true");
+    }
+    if (staleScan) {
+        reasonCodes.push("STALE_SCAN");
+        evidence.push("stale_scan_hint=true");
+    }
+    const budgetDecision = budget === "off"
+        ? null
+        : {
+              mode: budget,
+              decision: budget === "full" ? "FULL" : exceptionBudget ? "EXCEPTION" : "DEFAULT",
+              upgradesApplied,
+              reasonCodes,
+              evidence,
+          };
+    const effectiveOptions = { ...options, deep, fullWorkset, fullDetail, compact, manifest, verbose, budget, budgetDecision };
     const parts = [
         "# Task Implementation Prompt",
         compact

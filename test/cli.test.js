@@ -1634,8 +1634,13 @@ seed
             );
             const text = output.join("\n");
 
+            assert.match(text, /## Budget Decision/);
+            assert.match(text, /decision: EXCEPTION/);
             assert.match(text, /Context Loop Digest/);
             assert.match(text, /Recent Context Loop \(Raw\)/);
+
+            const loopText = fs.readFileSync(".aidw/context-loop.jsonl", "utf-8");
+            assert.match(loopText, /"type":"budget_decision"/);
         });
     });
 
@@ -1977,6 +1982,11 @@ Confirm budget policy upgrades.
 
             assert.match(text, /## Rules/);
             assert.match(text, /## Context Loop Signals/);
+            assert.match(text, /## Budget Decision/);
+            assert.match(text, /decision: EXCEPTION/);
+
+            const loopText = fs.readFileSync(".aidw/context-loop.jsonl", "utf-8");
+            assert.match(loopText, /"type":"budget_decision"/);
         });
     });
 

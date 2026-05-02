@@ -49,6 +49,36 @@ When `--budget auto` is enabled:
   - include more relevant context (`--full-detail`, `--full-workset`)
   - expand bounded context only when needed (`--deep`)
 
+## Budget Decision Block
+
+When budget mode is `auto` or `full` (via flag or env), commands output a fixed block:
+
+```md
+## Budget Decision
+- mode: auto
+- decision: EXCEPTION
+- upgrades_applied: full-detail, full-workset
+- reason_codes: RECENT_TEST_FAIL, WARNINGS_PRESENT
+- evidence:
+  - last_test_exit=1 command="npm test"
+  - warnings_count=2
+- override:
+  - use --budget off to disable auto budget
+  - use --budget full for explicit full output
+```
+
+The same decision is appended to `.aidw/context-loop.jsonl` as an event:
+
+```json
+{
+  "type": "budget_decision",
+  "mode": "auto",
+  "decision": "EXCEPTION",
+  "reasonCodes": ["RECENT_TEST_FAIL"],
+  "evidence": ["last_test_exit=1 command=\"npm test\"", "warnings_count=2"]
+}
+```
+
 ## Command Mappings
 
 ### `context brief`
