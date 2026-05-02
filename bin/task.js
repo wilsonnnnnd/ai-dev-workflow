@@ -319,8 +319,41 @@ function getLikelyTestFiles(workset) {
     ];
 }
 
+function summarizeTaskDetailForPrompt(taskDetail) {
+    const content = String(taskDetail ?? "").trim();
+    if (!content) {
+        return "";
+    }
+
+    const headings = [
+        "Goal",
+        "Background",
+        "Scope",
+        "Requirements",
+        "Risk",
+        "Test Strategy",
+        "Acceptance Criteria",
+        "Test Command",
+    ];
+
+    const sections = headings
+        .map((heading) => {
+            const body = extractSection(content, heading);
+            return body ? `### ${heading}\n\n${body}` : null;
+        })
+        .filter(Boolean);
+
+    if (sections.length === 0) {
+        return content.length > 3000 ? `${content.slice(0, 2985).trimEnd()}\n[truncated]` : content;
+    }
+
+    const joined = sections.join("\n\n");
+    return joined.length > 6000 ? `${joined.slice(0, 5985).trimEnd()}\n[truncated]` : joined;
+}
+
 function buildTaskPrDescription(taskId, options = {}) {
     const deep = Boolean(options.deep);
+    const fullWorkset = Boolean(options.fullWorkset);
     const maxChars = deep ? PR_LIMITS.deep : PR_LIMITS.default;
     const warnings = [];
     const registry = parseTaskRegistry();
@@ -355,7 +388,7 @@ function buildTaskPrDescription(taskId, options = {}) {
     }
 
     const taskDetail = readTaskDetail(task, warnings);
-    const workset = buildWorksetContext(task.id, { deep });
+    const workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
     const goal = extractSection(taskDetail, "Goal") || "Address the selected task using the available registry metadata and workset context.";
     const scope = extractSection(taskDetail, "Scope");
     const acceptanceCriteria = extractSection(taskDetail, "Acceptance Criteria");
@@ -448,6 +481,7 @@ function buildTaskPrDescription(taskId, options = {}) {
 
 function buildTaskChecklist(taskId, options = {}) {
     const deep = Boolean(options.deep);
+    const fullWorkset = Boolean(options.fullWorkset);
     const maxChars = deep ? CHECKLIST_LIMITS.deep : CHECKLIST_LIMITS.default;
     const warnings = [];
     const registry = parseTaskRegistry();
@@ -482,7 +516,7 @@ function buildTaskChecklist(taskId, options = {}) {
     }
 
     const taskDetail = readTaskDetail(task, warnings);
-    const workset = buildWorksetContext(task.id, { deep });
+    const workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
     const goal = extractSection(taskDetail, "Goal") || "Review task detail and registry metadata to confirm the intended outcome.";
     const acceptanceCriteria = extractSection(taskDetail, "Acceptance Criteria");
     const riskAreas = extractWorksetSection(workset, "Relevant Risk Areas");
@@ -570,6 +604,8 @@ function buildTaskChecklist(taskId, options = {}) {
 
 function buildTaskPrompt(taskId, options = {}) {
     const deep = Boolean(options.deep);
+    const fullWorkset = Boolean(options.fullWorkset);
+    const fullDetail = Boolean(options.fullDetail);
     const maxChars = deep ? PROMPT_LIMITS.deep : PROMPT_LIMITS.default;
     const warnings = [];
     const registry = parseTaskRegistry();
@@ -604,7 +640,8 @@ function buildTaskPrompt(taskId, options = {}) {
     }
 
     const taskDetail = readTaskDetail(task, warnings);
-    const workset = buildWorksetContext(task.id, { deep });
+    const taskDetailForPrompt = fullDetail ? taskDetail : summarizeTaskDetailForPrompt(taskDetail);
+    const workset = buildWorksetContext(task.id, { deep, digest: !deep && !fullWorkset });
     const dependencySummaries = getDependencySummaries(task, registry);
     const parts = [
         "# Task Implementation Prompt",
@@ -634,7 +671,7 @@ function buildTaskPrompt(taskId, options = {}) {
             "",
             "### Task Detail",
             "",
-            taskDetail || "_Task detail file is unavailable. Use registry metadata and ask for more specific context if needed._",
+            taskDetailForPrompt || "_Task detail file is unavailable. Use registry metadata and ask for more specific context if needed._",
         ].join("\n"),
         [
             "## Relevant Workset",
@@ -678,11 +715,14 @@ function buildTaskPrompt(taskId, options = {}) {
 
 export async function runTask(args = []) {
     const subcommand = args[0];
+    const fullWorkset = args.includes("--full-workset");
+    const fullDetail = args.includes("--full-detail");
 
     if (subcommand === "pr") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
         const output = buildTaskPrDescription(taskId, {
             deep: args.includes("--deep"),
+            fullWorkset,
         });
 
         console.log(output.trimEnd());
@@ -696,6 +736,7 @@ export async function runTask(args = []) {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
         const output = buildTaskChecklist(taskId, {
             deep: args.includes("--deep"),
+            fullWorkset,
         });
 
         console.log(output.trimEnd());
@@ -709,6 +750,8 @@ export async function runTask(args = []) {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
         const output = buildTaskPrompt(taskId, {
             deep: args.includes("--deep"),
+            fullWorkset,
+            fullDetail,
         });
 
         console.log(output.trimEnd());

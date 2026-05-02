@@ -13,6 +13,7 @@ import { exists, listDirSafe, readJson, readText } from "../src/scan/fs-utils.js
 import { listTaskFiles } from "../src/scan/task-files.js";
 import { getRegistryStatusBreakdown, parseTaskRegistry } from "../src/scan/task-registry.js";
 import { formatLoopEventsMarkdown, listRecentLoopEvents } from "../src/loop/store.js";
+import { evaluateContextLoop } from "../src/loop/analyze.js";
 
 const LIMITS = {
     brief: {
@@ -32,6 +33,12 @@ const LIMITS = {
         maxChars: 24000,
         maxRelatedFiles: 24,
         maxRelatedSymbols: 60,
+        maxDependencySummaries: 3,
+    },
+    "workset-digest": {
+        maxChars: 7000,
+        maxRelatedFiles: 6,
+        maxRelatedSymbols: 8,
         maxDependencySummaries: 3,
     },
 };
@@ -403,6 +410,25 @@ function renderBounded(bodyParts, manifest, maxChars) {
     return output.slice(0, Math.max(0, maxChars - 14)).trimEnd() + "\n[truncated]\n";
 }
 
+function formatLoopDigest(options = {}) {
+    const result = evaluateContextLoop({ taskId: options.taskId ?? null });
+    const lastTest = result.mostRecentTest;
+    const lastTestSummary = lastTest
+        ? `${lastTest.ok ? "pass" : "fail"} (exit ${lastTest.exitCode ?? "?"})${lastTest.command ? `: ${lastTest.command}` : ""}`
+        : "-";
+
+    const topFail = result.patterns.topFailingCommands?.[0]?.command ?? "-";
+
+    return [
+        `- decision: ${result.constraints.blockNewTask ? "BLOCK_NEW_TASK" : "ALLOW_NEW_TASK"}`,
+        `- unstable: ${result.constraints.unstable ? "true" : "false"}`,
+        `- last_test: ${lastTestSummary}`,
+        `- failure_streak: ${result.patterns.failureStreak}`,
+        `- top_failing_command: ${topFail}`,
+        `- require_rca: ${result.constraints.requireRootCauseAnalysis ? "true" : "false"}`,
+    ].join("\n");
+}
+
 function buildBrief() {
     const warnings = [];
     const registry = parseTaskRegistry();
@@ -551,8 +577,111 @@ function buildNextTask() {
     }, LIMITS["next-task"].maxChars);
 }
 
+function buildWorksetDigest(taskId, warnings = []) {
+    const registry = parseTaskRegistry();
+    warnings.push(...findTaskFileMismatchWarnings(registry));
+
+    if (!taskId) {
+        warnings.push("Missing task id.");
+        return renderBounded(["# Workset Context", "Usage: repo-context-kit context workset <taskId> [--digest] [--deep]"], {
+            level: "workset --digest",
+            taskId: null,
+            includedSources: [],
+            excludedSources: ["task detail files", "generated indexes"],
+            limits: `maxChars=${LIMITS["workset-digest"].maxChars}, maxRelatedFiles=${LIMITS["workset-digest"].maxRelatedFiles}, maxRelatedSymbols=${LIMITS["workset-digest"].maxRelatedSymbols}, maxDependencySummaries=${LIMITS["workset-digest"].maxDependencySummaries}`,
+            warnings,
+        }, LIMITS["workset-digest"].maxChars);
+    }
+
+    if (!registry.exists) {
+        return renderBounded(["# Workset Context", "No task registry is available."], {
+            level: "workset --digest",
+            taskId,
+            includedSources: [],
+            excludedSources: ["task detail files", "generated indexes"],
+            limits: `maxChars=${LIMITS["workset-digest"].maxChars}, maxRelatedFiles=${LIMITS["workset-digest"].maxRelatedFiles}, maxRelatedSymbols=${LIMITS["workset-digest"].maxRelatedSymbols}, maxDependencySummaries=${LIMITS["workset-digest"].maxDependencySummaries}`,
+            warnings,
+        }, LIMITS["workset-digest"].maxChars);
+    }
+
+    const task = taskById(registry, taskId);
+    if (!task) {
+        warnings.push(`Task ${taskId} was not found in ${TASK_REGISTRY_PATH}.`);
+        return renderBounded(["# Workset Context", `Task not found: ${taskId}`], {
+            level: "workset --digest",
+            taskId,
+            includedSources: [TASK_REGISTRY_PATH],
+            excludedSources: ["task detail files", "generated indexes"],
+            limits: `maxChars=${LIMITS["workset-digest"].maxChars}, maxRelatedFiles=${LIMITS["workset-digest"].maxRelatedFiles}, maxRelatedSymbols=${LIMITS["workset-digest"].maxRelatedSymbols}, maxDependencySummaries=${LIMITS["workset-digest"].maxDependencySummaries}`,
+            warnings,
+        }, LIMITS["workset-digest"].maxChars);
+    }
+
+    const limits = LIMITS["workset-digest"];
+    const taskContext = buildTaskContext(task, registry, "workset", limits, warnings);
+    const relatedFiles = selectRelatedFiles(task, taskContext.detailContent, limits, warnings);
+    const relatedSymbols = selectRelatedSymbols(task, taskContext.detailContent, relatedFiles, limits, warnings);
+    const entrypoints = readJson(CONTEXT_INDEX_ENTRYPOINTS_PATH);
+    const project = readProjectContext();
+    const includedSources = [...taskContext.includedSources];
+
+    if (project.exists) {
+        includedSources.push(CONTEXT_PROJECT_MD_PATH);
+    }
+    if (!readJson(CONTEXT_INDEX_SUMMARY_PATH)) {
+        warnings.push(`${CONTEXT_INDEX_SUMMARY_PATH} is missing. Run repo-context-kit scan.`);
+    }
+    if (readJson(CONTEXT_INDEX_FILES_PATH)) {
+        includedSources.push(CONTEXT_INDEX_FILES_PATH);
+    }
+    if (readJson(CONTEXT_INDEX_SYMBOLS_PATH)) {
+        includedSources.push(CONTEXT_INDEX_SYMBOLS_PATH);
+    }
+    if (entrypoints) {
+        includedSources.push(CONTEXT_INDEX_ENTRYPOINTS_PATH);
+    }
+
+    const parts = [
+        "# Workset Context (Digest)",
+        `## Context Loop Digest\n\n${formatLoopDigest({ taskId: task.id })}`,
+        ...taskContext.parts,
+        `## Related File Candidates\n\n${formatList(relatedFiles.map((file) => `${file.path} (confidence ${file.confidence.toFixed(2)}): ${file.reason}`))}`,
+    ];
+
+    if (Array.isArray(entrypoints)) {
+        parts.push(`## Relevant Entry Points\n\n${formatList(entrypoints.slice(0, 3).map((entry) => `${entry.path} (${entry.name}, confidence ${Number(entry.confidence ?? 0).toFixed(2)})`))}`);
+    }
+
+    if (project.riskAreas) {
+        parts.push(`## Relevant Risk Areas\n\n${truncateText(project.riskAreas, 700)}`);
+    }
+
+    parts.push(`## Related Symbols\n\n${formatList(relatedSymbols.map((symbol) => `${symbol.name} (${symbol.type}) in ${symbol.file} (confidence ${symbol.confidence.toFixed(2)}): ${symbol.reason}`))}`);
+    parts.push(`## Suggested Read Order\n\n${formatList([
+        task.file,
+        ...normalizeDependencies(task.dependencies).map((dependencyId) => taskById(registry, dependencyId)?.file).filter(Boolean),
+        ...relatedFiles.map((file) => file.path),
+    ].filter(Boolean).slice(0, limits.maxRelatedFiles + 1))}`);
+
+    return renderBounded(parts, {
+        level: "workset --digest",
+        taskId: task.id,
+        includedSources: [...new Set(includedSources)],
+        excludedSources: ["unselected task detail files", "full files.json dump", "full symbols.json dump"],
+        limits: `maxChars=${limits.maxChars}, maxRelatedFiles=${limits.maxRelatedFiles}, maxRelatedSymbols=${limits.maxRelatedSymbols}, maxDependencySummaries=${limits.maxDependencySummaries}`,
+        warnings,
+    }, limits.maxChars);
+}
+
 function buildWorkset(taskId, options = {}) {
     const deep = Boolean(options.deep);
+    const digest = Boolean(options.digest) || options.mode === "digest";
+
+    if (digest && !deep) {
+        const warnings = [];
+        return buildWorksetDigest(taskId, warnings);
+    }
+
     const level = deep ? "workset --deep" : "workset";
     const limits = deep ? LIMITS["workset-deep"] : LIMITS.workset;
     const warnings = [];
@@ -660,6 +789,7 @@ export function buildWorksetContext(taskId, options = {}) {
 export async function runContext(args = []) {
     const subcommand = args.find((arg) => !arg.startsWith("--"));
     const deep = args.includes("--deep");
+    const digest = args.includes("--digest");
     let output;
 
     if (subcommand === "brief") {
@@ -669,13 +799,13 @@ export async function runContext(args = []) {
     } else if (subcommand === "workset") {
         const worksetIndex = args.indexOf("workset");
         const taskId = args.slice(worksetIndex + 1).find((arg) => !arg.startsWith("--"));
-        output = buildWorkset(taskId, { deep });
+        output = buildWorkset(taskId, { deep, digest });
     } else {
         console.error("Unknown context command.");
         console.log("Usage:");
         console.log("  repo-context-kit context brief");
         console.log("  repo-context-kit context next-task");
-        console.log("  repo-context-kit context workset <taskId> [--deep]");
+        console.log("  repo-context-kit context workset <taskId> [--digest] [--deep]");
         process.exitCode = 1;
         return {
             output: null,
