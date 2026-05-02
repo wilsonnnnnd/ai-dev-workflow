@@ -1,45 +1,30 @@
 #!/usr/bin/env node
-import { spawn } from "child_process";
 import path from "path";
-import { existsSync, readFileSync } from "fs";
-import { parseTaskRegistry } from "../src/scan/task-registry.js";
 import {
     loadGateState,
+    confirmTask,
+    confirmTests,
     resetGateState,
-    setTaskConfirmed,
-    setTestsConfirmed,
 } from "../src/gate/state.js";
-
-const ALLOWED_TEST_COMMANDS = new Set(["npm test", "pnpm test", "yarn test", "pytest"]);
-
-function extractSection(content, heading) {
-    const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(
-        `(?:^|\\n)##\\s+${escapedHeading}\\s*\\n(?<body>[\\s\\S]*?)(?=\\n##\\s|$)`,
-        "i",
-    );
-    const match = content.match(regex);
-
-    return match?.groups?.body?.trim() ?? "";
-}
-
-function normalizeCommand(command) {
-    return String(command ?? "").trim().replace(/\s+/g, " ");
-}
+import { runTaskTestThroughGate } from "../src/gate/run-test.js";
 
 function printGateStatus(state) {
+    const active = state.active;
+    const hasActive = Boolean(active?.taskConfirmed);
     console.log([
         "# Confirmation Gate",
         "",
         `- protocol: ${state.protocol}`,
-        `- taskConfirmed: ${state.taskConfirmed ? "true" : "false"}`,
-        `- testsConfirmed: ${state.testsConfirmed ? "true" : "false"}`,
+        `- taskId: ${active?.taskId ?? "-"}`,
+        `- expiresAt: ${active?.expiresAt ?? "-"}`,
+        `- taskConfirmed: ${hasActive ? "true" : "false"}`,
+        `- testsConfirmed: ${active?.testsConfirmed ? "true" : "false"}`,
         `- updatedAt: ${state.updatedAt ?? "-"}`,
         "",
         "## Effective Gating",
         "",
-        `- allow_file_edits: ${state.taskConfirmed ? "true" : "false"}`,
-        `- allow_commands: ${state.testsConfirmed ? "true" : "false"}`,
+        `- allow_file_edits: ${hasActive ? "true" : "false"}`,
+        `- allow_commands: ${active?.testsConfirmed ? "true" : "false"}`,
     ].join("\n"));
 }
 
@@ -47,77 +32,28 @@ function usage() {
     console.log(`Usage:
   repo-context-kit gate status
   repo-context-kit gate reset
-  repo-context-kit gate confirm task
-  repo-context-kit gate confirm tests
-  repo-context-kit gate run-test <taskId>
+  repo-context-kit gate confirm task <taskId> [--ttl-minutes <n>] [--json]
+  repo-context-kit gate confirm tests <taskId> [--json]
+  repo-context-kit gate run-test <taskId> --token <token> [--json]
 `);
 }
 
-function resolveTaskFile(taskId) {
-    const registry = parseTaskRegistry();
-    const task = registry.tasks.find((entry) => entry.id?.toLowerCase() === taskId.toLowerCase()) ?? null;
-
-    if (!task) {
-        return { error: `Task not found: ${taskId}`, file: null };
-    }
-
-    if (!task.file) {
-        return { error: `Task ${taskId} has no file entry in task/task.md`, file: null };
-    }
-
-    const filePath = path.resolve(process.cwd(), task.file);
-    if (!existsSync(filePath)) {
-        return { error: `Task file does not exist: ${task.file}`, file: null };
-    }
-
-    return { error: null, file: filePath };
+function emitJson(body) {
+    console.log(JSON.stringify(body));
 }
 
-function getTaskTestCommand(taskId) {
-    const { error, file } = resolveTaskFile(taskId);
-    if (error) {
-        return { error, command: null };
+function getFlagValue(args, flag) {
+    const index = args.indexOf(flag);
+    if (index === -1) {
+        return null;
     }
-
-    const content = readFileSync(file, "utf-8");
-    const raw = extractSection(content, "Test Command");
-
-    if (!raw) {
-        return { error: `Task ${taskId} is missing a "## Test Command" section.`, command: null };
-    }
-
-    const fencedMatch = raw.match(/```(?:bash)?\s*\n([\s\S]*?)\n```/i);
-    const command = normalizeCommand(fencedMatch?.[1] ?? raw.split("\n")[0]);
-
-    if (!command) {
-        return { error: `Task ${taskId} has an empty test command.`, command: null };
-    }
-
-    if (!ALLOWED_TEST_COMMANDS.has(command)) {
-        return {
-            error: `Unsupported test command for safety: "${command}". Allowed: ${[...ALLOWED_TEST_COMMANDS].join(", ")}.`,
-            command: null,
-        };
-    }
-
-    return { error: null, command };
-}
-
-async function runAllowedCommand(command) {
-    return new Promise((resolve) => {
-        const child = spawn(command, {
-            stdio: "inherit",
-            shell: true,
-            windowsHide: true,
-        });
-
-        child.on("close", (code) => resolve(code ?? 1));
-        child.on("error", () => resolve(1));
-    });
+    return args[index + 1] ?? null;
 }
 
 export async function runGate(args = []) {
-    const subcommand = args[0];
+    const json = args.includes("--json");
+    const filteredArgs = args.filter((arg) => arg !== "--json");
+    const subcommand = filteredArgs[0];
 
     if (!subcommand || subcommand === "help" || subcommand === "--help") {
         usage();
@@ -125,37 +61,79 @@ export async function runGate(args = []) {
     }
 
     if (subcommand === "status") {
-        printGateStatus(loadGateState());
+        const state = loadGateState();
+        if (json) {
+            emitJson({ ok: true, state });
+            return;
+        }
+        printGateStatus(state);
         return;
     }
 
     if (subcommand === "reset") {
         const { filePath, state } = resetGateState();
+        if (json) {
+            emitJson({ ok: true, file: path.relative(process.cwd(), filePath).replaceAll("\\", "/"), state });
+            return;
+        }
         console.log(`✔ Gate reset: ${path.relative(process.cwd(), filePath).replaceAll("\\", "/")}`);
         printGateStatus(state);
         return;
     }
 
     if (subcommand === "confirm") {
-        const target = args[1];
+        const target = filteredArgs[1];
+        const taskId = filteredArgs[2];
+        const ttlMinutes = getFlagValue(filteredArgs, "--ttl-minutes");
 
         if (target === "task") {
-            const { filePath, state } = setTaskConfirmed(true);
-            console.log(`✔ Task confirmed: ${path.relative(process.cwd(), filePath).replaceAll("\\", "/")}`);
-            printGateStatus(state);
+            const result = confirmTask(taskId, { ttlMinutes });
+            if (result.error) {
+                if (json) {
+                    emitJson({ ok: false, error: result.error });
+                } else {
+                    console.error(result.error);
+                }
+                process.exitCode = 1;
+                return;
+            }
+            if (json) {
+                emitJson({
+                    ok: true,
+                    token: result.token,
+                    file: path.relative(process.cwd(), result.filePath).replaceAll("\\", "/"),
+                    state: result.state,
+                });
+                return;
+            }
+            console.log(`✔ Task confirmed: ${path.relative(process.cwd(), result.filePath).replaceAll("\\", "/")}`);
+            console.log(`Token: ${result.token}`);
+            printGateStatus(result.state);
             return;
         }
 
         if (target === "tests") {
-            const current = loadGateState();
-            if (!current.taskConfirmed) {
-                console.error("Task must be confirmed before confirming tests.");
+            const result = confirmTests(taskId);
+            if (result.error) {
+                if (json) {
+                    emitJson({ ok: false, error: result.error });
+                } else {
+                    console.error(result.error);
+                }
                 process.exitCode = 1;
                 return;
             }
-            const { filePath, state } = setTestsConfirmed(true);
-            console.log(`✔ Tests confirmed: ${path.relative(process.cwd(), filePath).replaceAll("\\", "/")}`);
-            printGateStatus(state);
+            if (json) {
+                emitJson({
+                    ok: true,
+                    token: result.state?.active?.token ?? null,
+                    file: path.relative(process.cwd(), result.filePath).replaceAll("\\", "/"),
+                    state: result.state,
+                });
+                return;
+            }
+            console.log(`✔ Tests confirmed: ${path.relative(process.cwd(), result.filePath).replaceAll("\\", "/")}`);
+            printGateStatus(result.state);
             return;
         }
 
@@ -166,7 +144,7 @@ export async function runGate(args = []) {
     }
 
     if (subcommand === "run-test") {
-        const taskId = args[1];
+        const taskId = filteredArgs[1];
         if (!taskId) {
             console.error("Missing task id.");
             usage();
@@ -174,23 +152,28 @@ export async function runGate(args = []) {
             return;
         }
 
-        const gate = loadGateState();
-        if (!gate.testsConfirmed) {
-            console.error("Tests are not confirmed. Run: repo-context-kit gate confirm tests");
+        const token = getFlagValue(filteredArgs, "--token");
+        if (!token) {
+            const error = "Missing gate token. Usage: repo-context-kit gate run-test <taskId> --token <token>";
+            if (json) {
+                emitJson({ ok: false, error });
+            } else {
+                console.error(error);
+            }
             process.exitCode = 1;
             return;
         }
 
-        const { error, command } = getTaskTestCommand(taskId);
-        if (error) {
-            console.error(error);
-            process.exitCode = 1;
-            return;
+        const result = await runTaskTestThroughGate({ taskId, token });
+        if (json) {
+            emitJson({
+                ok: result.ok,
+                exitCode: result.exitCode,
+                command: result.command,
+                error: result.error,
+            });
         }
-
-        console.log(`Running: ${command}`);
-        const code = await runAllowedCommand(command);
-        process.exitCode = code;
+        process.exitCode = result.exitCode;
         return;
     }
 
@@ -198,4 +181,3 @@ export async function runGate(args = []) {
     usage();
     process.exitCode = 1;
 }
-

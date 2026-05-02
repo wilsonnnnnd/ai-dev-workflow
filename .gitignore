@@ -1,2 +1,3 @@
 .tmp-scan-backend-test/
 node_modules/
+.aidw/confirmation-gate.json

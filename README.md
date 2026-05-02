@@ -225,11 +225,11 @@ Task drafts should include:
 To keep command execution reviewable across Trae/Copilot/Codex workflows, repo-context-kit includes an optional confirmation gate:
 
 - `repo-context-kit gate status`
-- `repo-context-kit gate confirm task`
-- `repo-context-kit gate confirm tests`
-- `repo-context-kit gate run-test <taskId>`
+- `repo-context-kit gate confirm task <taskId>`
+- `repo-context-kit gate confirm tests <taskId>`
+- `repo-context-kit gate run-test <taskId> --token <token>`
 
-The gate stores its state in `.aidw/confirmation-gate.json` and only allows running a small allowlist of test commands.
+The gate stores its state in `.aidw/confirmation-gate.json`, binds confirmation to one task id with an expiration time, and only allows running a small allowlist of test commands.
 
 ## File Map And Indexes
 

@@ -32,6 +32,18 @@ function runNpx(args, cwd) {
     });
 }
 
+function parseJsonOutput(stdout) {
+    const text = String(stdout ?? "").trim();
+    if (!text) {
+        return null;
+    }
+    try {
+        return JSON.parse(text);
+    } catch {
+        return null;
+    }
+}
+
 function listTaskIds(cwd) {
     const taskDir = path.join(cwd, "task");
     if (!fs.existsSync(taskDir)) {
@@ -80,6 +92,10 @@ async function pickTaskId(cwd) {
     return picked ?? null;
 }
 
+function tokenKey(taskId) {
+    return `repoContextKitGate.token.${taskId}`;
+}
+
 function activate(context) {
     context.subscriptions.push(
         vscode.commands.registerCommand("repoContextKitGate.status", async () => {
@@ -103,8 +119,16 @@ function activate(context) {
         vscode.commands.registerCommand("repoContextKitGate.confirmTask", async () => {
             const cwd = await ensureWorkspaceRoot();
             if (!cwd) return;
-            const result = await runNpx(["gate", "confirm", "task"], cwd);
-            await showResult("Task confirmed", result);
+            const taskId = await pickTaskId(cwd);
+            if (!taskId) return;
+            const result = await runNpx(["gate", "confirm", "task", taskId, "--json"], cwd);
+            const parsed = parseJsonOutput(result.stdout);
+            if (result.code === 0 && parsed?.ok && parsed?.token) {
+                await context.globalState.update(tokenKey(taskId), parsed.token);
+                vscode.window.showInformationMessage(`Task confirmed: ${taskId}`);
+                return;
+            }
+            await showResult(`Confirm task ${taskId}`, result);
         }),
     );
 
@@ -112,8 +136,23 @@ function activate(context) {
         vscode.commands.registerCommand("repoContextKitGate.confirmTests", async () => {
             const cwd = await ensureWorkspaceRoot();
             if (!cwd) return;
-            const result = await runNpx(["gate", "confirm", "tests"], cwd);
-            await showResult("Tests confirmed", result);
+            const taskId = await pickTaskId(cwd);
+            if (!taskId) return;
+            const token = context.globalState.get(tokenKey(taskId));
+            if (!token) {
+                vscode.window.showErrorMessage(`Missing gate token for ${taskId}. Run "Confirm Task" first.`);
+                return;
+            }
+            const result = await runNpx(["gate", "confirm", "tests", taskId, "--json"], cwd);
+            const parsed = parseJsonOutput(result.stdout);
+            if (result.code === 0 && parsed?.ok) {
+                if (parsed?.token) {
+                    await context.globalState.update(tokenKey(taskId), parsed.token);
+                }
+                vscode.window.showInformationMessage(`Tests confirmed: ${taskId}`);
+                return;
+            }
+            await showResult(`Confirm tests ${taskId}`, result);
         }),
     );
 
@@ -123,7 +162,12 @@ function activate(context) {
             if (!cwd) return;
             const taskId = await pickTaskId(cwd);
             if (!taskId) return;
-            const result = await runNpx(["gate", "run-test", taskId], cwd);
+            const token = context.globalState.get(tokenKey(taskId));
+            if (!token) {
+                vscode.window.showErrorMessage(`Missing gate token for ${taskId}. Run "Confirm Task" first.`);
+                return;
+            }
+            const result = await runNpx(["gate", "run-test", taskId, "--token", token], cwd);
             await showResult(`Run test for ${taskId}`, result);
         }),
     );
@@ -132,4 +176,3 @@ function activate(context) {
 function deactivate() {}
 
 module.exports = { activate, deactivate };
-

@@ -751,8 +751,9 @@ old generated content
         const text = output.join("\n");
 
         assert.match(text, /gate status/);
-        assert.match(text, /gate confirm task\|tests/);
-        assert.match(text, /gate run-test <taskId>/);
+        assert.match(text, /gate confirm task <taskId>/);
+        assert.match(text, /gate confirm tests <taskId>/);
+        assert.match(text, /gate run-test <taskId> --token <token>/);
         assert.match(text, /task new \[title\]/);
         assert.match(text, /task checklist <taskId> \[--deep\]/);
         assert.match(text, /task pr <taskId> \[--deep\]/);
@@ -768,7 +769,7 @@ old generated content
             await withMutedConsole(() => runInit());
             process.exitCode = 0;
 
-            const { output } = await withCapturedConsole(() => runGate(["confirm", "tests"]));
+            const { output } = await withCapturedConsole(() => runGate(["confirm", "tests", "T-001"]));
 
             assert.equal(process.exitCode, 1);
             assert.match(output.join("\n"), /Task must be confirmed before confirming tests/i);

@@ -31,10 +31,12 @@ Commands:
               Print bounded implementation context for one task
   gate status
               Show confirmation gate state
-  gate confirm task|tests
-              Set confirmation gate approvals for task and tests
-  gate run-test <taskId>
-              Run the selected task's test command if tests are confirmed
+  gate confirm task <taskId>
+              Confirm one task and generate a time-limited gate token
+  gate confirm tests <taskId>
+              Confirm test execution for the selected task
+  gate run-test <taskId> --token <token>
+              Run the selected task's test command when tests are confirmed and token is valid
   task new [title]
               Create an implementation-ready task file and update task/task.md
   task checklist <taskId> [--deep]
@@ -48,7 +50,7 @@ Commands:
 Task-driven workflow:
   context brief -> context next-task -> context workset <taskId>
   task prompt <taskId> -> task checklist <taskId> -> task pr <taskId>
-  gate confirm task -> gate confirm tests -> gate run-test <taskId>
+  gate confirm task <taskId> -> gate confirm tests <taskId> -> gate run-test <taskId> --token <token>
 
 Init options:
   --dry-run   Show what init would create or skip without writing files
@@ -137,8 +139,9 @@ export async function main(args = process.argv.slice(2)) {
     console.log("  repo-context-kit context next-task");
     console.log("  repo-context-kit context workset <taskId> [--deep]");
     console.log("  repo-context-kit gate status");
-    console.log("  repo-context-kit gate confirm task|tests");
-    console.log("  repo-context-kit gate run-test <taskId>");
+    console.log("  repo-context-kit gate confirm task <taskId>");
+    console.log("  repo-context-kit gate confirm tests <taskId>");
+    console.log("  repo-context-kit gate run-test <taskId> --token <token>");
     console.log("  repo-context-kit task new [title]");
     console.log("  repo-context-kit task checklist <taskId> [--deep]");
     console.log("  repo-context-kit task pr <taskId> [--deep]");

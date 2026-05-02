@@ -21,6 +21,11 @@ const ACTIONS = {
     "scan-check": ["scan", "--check"],
     "scan-auto": ["scan", "--auto"],
     "task-new": ["task", "new"],
+    "gate-status": ["gate", "status", "--json"],
+    "gate-reset": ["gate", "reset", "--json"],
+    "gate-confirm-task": ["gate", "confirm", "task", "--json"],
+    "gate-confirm-tests": ["gate", "confirm", "tests", "--json"],
+    "gate-run-test": ["gate", "run-test"],
 };
 
 const CONTENT_TYPES = {
@@ -96,6 +101,57 @@ function validateTitle(title) {
     return null;
 }
 
+function validateTaskId(taskId) {
+    if (typeof taskId !== "string") {
+        return "Task id is required.";
+    }
+
+    const trimmed = taskId.trim().toUpperCase();
+    if (!trimmed) {
+        return "Task id cannot be empty.";
+    }
+
+    if (!/^T-\d{3}$/u.test(trimmed)) {
+        return "Task id must match T-###.";
+    }
+
+    return null;
+}
+
+function validateTtlMinutes(value) {
+    if (value == null || value === "") {
+        return null;
+    }
+
+    const raw = Number.parseInt(value, 10);
+    if (!Number.isFinite(raw) || raw <= 0) {
+        return "TTL minutes must be a positive number.";
+    }
+
+    if (raw > 1440) {
+        return "TTL minutes must be 1440 or fewer.";
+    }
+
+    return null;
+}
+
+function validateToken(token) {
+    if (typeof token !== "string") {
+        return "Gate token is required.";
+    }
+
+    const trimmed = token.trim();
+    if (!trimmed) {
+        return "Gate token cannot be empty.";
+    }
+
+    if (!/^[a-f0-9]{32}$/i.test(trimmed)) {
+        return "Gate token format is invalid.";
+    }
+
+    return null;
+}
+
 function getActionArgs(action, payload = {}) {
     const baseArgs = ACTIONS[action];
 
@@ -107,10 +163,46 @@ function getActionArgs(action, payload = {}) {
     }
 
     if (action !== "task-new") {
-        return {
-            error: null,
-            args: baseArgs,
-        };
+        if (action === "gate-confirm-task") {
+            const taskIdError = validateTaskId(payload.taskId);
+            const ttlError = validateTtlMinutes(payload.ttlMinutes);
+            if (taskIdError) {
+                return { error: taskIdError, args: null };
+            }
+            if (ttlError) {
+                return { error: ttlError, args: null };
+            }
+            const args = [...baseArgs, payload.taskId.trim().toUpperCase()];
+            if (payload.ttlMinutes) {
+                args.push("--ttl-minutes", String(Number.parseInt(payload.ttlMinutes, 10)));
+            }
+            return { error: null, args };
+        }
+
+        if (action === "gate-confirm-tests") {
+            const taskIdError = validateTaskId(payload.taskId);
+            if (taskIdError) {
+                return { error: taskIdError, args: null };
+            }
+            return { error: null, args: [...baseArgs, payload.taskId.trim().toUpperCase()] };
+        }
+
+        if (action === "gate-run-test") {
+            const taskIdError = validateTaskId(payload.taskId);
+            const tokenError = validateToken(payload.token);
+            if (taskIdError) {
+                return { error: taskIdError, args: null };
+            }
+            if (tokenError) {
+                return { error: tokenError, args: null };
+            }
+            return {
+                error: null,
+                args: [...baseArgs, payload.taskId.trim().toUpperCase(), "--token", payload.token.trim()],
+            };
+        }
+
+        return { error: null, args: baseArgs };
     }
 
     const titleError = validateTitle(payload.title);
@@ -164,6 +256,8 @@ async function handleRun(req, res) {
     });
 
     let child;
+    let stdoutText = "";
+    let stderrText = "";
 
     try {
         child = spawn(process.execPath, [cliPath, ...args], {
@@ -180,10 +274,12 @@ async function handleRun(req, res) {
     }
 
     child.stdout.on("data", (chunk) => {
+        stdoutText += chunk.toString("utf-8");
         writeLog(res, { type: "stdout", text: chunk.toString("utf-8") });
     });
 
     child.stderr.on("data", (chunk) => {
+        stderrText += chunk.toString("utf-8");
         writeLog(res, { type: "stderr", text: chunk.toString("utf-8") });
     });
 
@@ -192,6 +288,16 @@ async function handleRun(req, res) {
     });
 
     child.on("close", (code) => {
+        if (action.startsWith("gate-") && args.includes("--json")) {
+            try {
+                const parsed = JSON.parse(stdoutText.trim() || "{}");
+                writeLog(res, { type: "gate", data: parsed });
+            } catch {
+                if (stderrText.trim()) {
+                    writeLog(res, { type: "gate", data: { ok: false, error: stderrText.trim() } });
+                }
+            }
+        }
         writeLog(res, {
             type: "exit",
             code,

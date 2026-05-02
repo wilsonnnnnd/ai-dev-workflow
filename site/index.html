@@ -648,6 +648,7 @@
                 <button type="button" class="btn" data-run-action="scan-check">Check scan</button>
                 <button type="button" class="btn" data-run-action="scan-auto">Auto scan</button>
                 <button type="button" class="btn" data-run-action="task-new">Create task</button>
+                <button type="button" class="btn" data-run-action="gate-status">Gate status</button>
               </div>
 
               <div class="form-grid">
@@ -659,6 +660,11 @@
                     <option value="scan-check">Check scan status</option>
                     <option value="scan-auto">Auto update context</option>
                     <option value="task-new">Create task</option>
+                    <option value="gate-status">Gate status</option>
+                    <option value="gate-reset">Gate reset</option>
+                    <option value="gate-confirm-task">Gate confirm task</option>
+                    <option value="gate-confirm-tests">Gate confirm tests</option>
+                    <option value="gate-run-test">Gate run task test</option>
                   </select>
                 </div>
 
@@ -670,6 +676,30 @@
                     value="Task title"
                     autocomplete="off"
                     placeholder="Add receipt evidence API"
+                  >
+                </div>
+
+                <div class="field hidden" id="task-id-field">
+                  <label for="task-id">Task id</label>
+                  <input
+                    id="task-id"
+                    type="text"
+                    value="T-001"
+                    autocomplete="off"
+                    placeholder="T-001"
+                  >
+                </div>
+
+                <div class="field hidden" id="ttl-minutes-field">
+                  <label for="ttl-minutes">Gate TTL (minutes)</label>
+                  <input
+                    id="ttl-minutes"
+                    type="number"
+                    value="60"
+                    min="1"
+                    max="1440"
+                    step="1"
+                    autocomplete="off"
                   >
                 </div>
               </div>
@@ -784,12 +814,33 @@
       },
       "task-new": {
         explanation: "Creates a numbered task file and updates the task registry."
+      },
+      "gate-status": {
+        command: "npx repo-context-kit gate status --json",
+        explanation: "Shows the current confirmation gate status."
+      },
+      "gate-reset": {
+        command: "npx repo-context-kit gate reset --json",
+        explanation: "Clears the active confirmation gate."
+      },
+      "gate-confirm-task": {
+        explanation: "Confirms one task and generates a time-limited gate token."
+      },
+      "gate-confirm-tests": {
+        explanation: "Confirms test execution for the selected task."
+      },
+      "gate-run-test": {
+        explanation: "Runs the selected task test command when the gate is confirmed."
       }
     };
 
     const commandSelect = document.querySelector("#command-select");
     const taskTitleField = document.querySelector("#task-title-field");
     const taskTitleInput = document.querySelector("#task-title");
+    const taskIdField = document.querySelector("#task-id-field");
+    const taskIdInput = document.querySelector("#task-id");
+    const ttlMinutesField = document.querySelector("#ttl-minutes-field");
+    const ttlMinutesInput = document.querySelector("#ttl-minutes");
     const quickTaskTitleInput = document.querySelector("#task-title-quick");
     const createTaskButton = document.querySelector("#create-task");
     const commandPreview = document.querySelector("#command-preview");
@@ -815,6 +866,8 @@
     let selectedFilePath = "";
     let managedTaskPaths = [];
     let taskExamplePath = "";
+    let currentAction = "";
+    const gateTokens = new Map();
 
     function quoteTaskTitle(title) {
       const trimmedTitle = title.trim() || "Task title";
@@ -827,11 +880,47 @@
         return `npx repo-context-kit task new "${quoteTaskTitle(taskTitleInput.value)}"`;
       }
 
+      if (selected === "gate-confirm-task") {
+        const taskId = (taskIdInput.value || "T-001").trim().toUpperCase();
+        const ttl = (ttlMinutesInput.value || "60").toString().trim();
+        return `npx repo-context-kit gate confirm task ${taskId} --ttl-minutes ${ttl} --json`;
+      }
+
+      if (selected === "gate-confirm-tests") {
+        const taskId = (taskIdInput.value || "T-001").trim().toUpperCase();
+        return `npx repo-context-kit gate confirm tests ${taskId} --json`;
+      }
+
+      if (selected === "gate-run-test") {
+        const taskId = (taskIdInput.value || "T-001").trim().toUpperCase();
+        const token = gateTokens.get(taskId) || "<token>";
+        return `npx repo-context-kit gate run-test ${taskId} --token ${token}`;
+      }
+
       return commands[selected].command;
     }
 
     function getPayload() {
       if (commandSelect.value !== "task-new") {
+        const selected = commandSelect.value;
+        if (selected === "gate-confirm-task") {
+          return {
+            taskId: taskIdInput.value.trim(),
+            ttlMinutes: ttlMinutesInput.value
+          };
+        }
+        if (selected === "gate-confirm-tests") {
+          return {
+            taskId: taskIdInput.value.trim()
+          };
+        }
+        if (selected === "gate-run-test") {
+          const taskId = taskIdInput.value.trim().toUpperCase();
+          return {
+            taskId,
+            token: gateTokens.get(taskId) || ""
+          };
+        }
         return {};
       }
 
@@ -841,8 +930,16 @@
     function updatePreview() {
       const selected = commandSelect.value;
       const isTaskCommand = selected === "task-new";
+      const isGateAction = selected.startsWith("gate-");
+      const requiresTaskId =
+        selected === "gate-confirm-task" ||
+        selected === "gate-confirm-tests" ||
+        selected === "gate-run-test";
+      const requiresTtl = selected === "gate-confirm-task";
 
       taskTitleField.classList.toggle("hidden", !isTaskCommand);
+      taskIdField.classList.toggle("hidden", !(isGateAction && requiresTaskId));
+      ttlMinutesField.classList.toggle("hidden", !(isGateAction && requiresTtl));
       commandPreview.textContent = getCommand();
       commandExplanation.textContent = commands[selected].explanation;
       copyStatus.textContent = "";
@@ -908,6 +1005,7 @@
         return;
       }
 
+      currentAction = action;
       commandSelect.value = action;
       updatePreview();
 
@@ -915,6 +1013,22 @@
         runStatus.textContent = "Task title required";
         runStatus.className = "status-text error";
         return;
+      }
+
+      if ((action === "gate-confirm-task" || action === "gate-confirm-tests" || action === "gate-run-test") && !taskIdInput.value.trim()) {
+        runStatus.textContent = "Task id required";
+        runStatus.className = "status-text error";
+        return;
+      }
+
+      if (action === "gate-run-test") {
+        const taskId = taskIdInput.value.trim().toUpperCase();
+        const token = gateTokens.get(taskId);
+        if (!token) {
+          runStatus.textContent = "Confirm task/tests first";
+          runStatus.className = "status-text error";
+          return;
+        }
       }
 
       setRunning(true);
@@ -963,6 +1077,11 @@
               appendLog(event.text);
             } else if (event.type === "error") {
               appendLog(`\n${event.text}\n`);
+            } else if (event.type === "gate") {
+              const data = event.data || {};
+              if (data.ok && data.state && data.state.active && data.state.active.taskId && data.token) {
+                gateTokens.set(data.state.active.taskId, data.token);
+              }
             } else if (event.type === "exit") {
               runStatus.textContent = event.ok ? "Succeeded" : `Failed (${event.code})`;
               runStatus.className = event.ok ? "status-text success" : "status-text error";
