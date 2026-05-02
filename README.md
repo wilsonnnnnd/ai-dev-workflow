@@ -195,6 +195,23 @@ The scanner generates AI-readable project maps:
 
 These files help assistants find the right files faster and avoid guessing project structure.
 
+### Python and FastAPI awareness
+
+The scanner also recognizes Python/FastAPI repositories from common project files such as `requirements.txt`, `pyproject.toml`, `setup.py`, `poetry.lock`, and `Pipfile`.
+
+For a FastAPI backend like this:
+
+```text
+requirements.txt
+app/main.py
+app/routers/
+app/services/
+app/schemas/
+tests/
+```
+
+`repo-context-kit scan` will identify Python/FastAPI tech signals, list `app/main.py` as an entrypoint, summarize reusable backend areas, and flag likely risk areas such as auth, database, settings, prompt, and external integration code.
+
 ## Project Memory
 
 Project memory lives in `.aidw/`.
@@ -327,6 +344,8 @@ The scanner currently detects:
 - `generic`
 
 Detection is based on common repository structure and package metadata. The result is meant to provide useful AI context, not a complete architecture model.
+
+The scanner can also annotate Python/FastAPI backends within the existing project type model, using dependency and source-file signals without running Python code.
 
 ## Updating Existing Projects
 

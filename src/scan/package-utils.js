@@ -1,5 +1,9 @@
 import { IMPORTANT_SCRIPT_NAMES } from "./constants.js";
 import { exists, readJson } from "./fs-utils.js";
+import {
+    hasFastApiSignal,
+    hasPythonProjectFile,
+} from "./python-utils.js";
 
 export function getPackageJson() {
     return readJson("package.json");
@@ -67,6 +71,14 @@ export function detectTechStack(projectType) {
         stack.push("npm package");
     }
 
+    if (hasPythonProjectFile()) {
+        stack.push("Python");
+    }
+
+    if (hasFastApiSignal()) {
+        stack.push("FastAPI");
+    }
+
     if (projectType === "cli-tool" || (exists("bin") && pkg?.bin)) {
         stack.push("Node.js CLI");
     }
@@ -79,7 +91,7 @@ export function detectTechStack(projectType) {
 
     if (exists("tsconfig.json")) {
         stack.push("TypeScript");
-    } else {
+    } else if (pkg) {
         stack.push("JavaScript");
     }
 

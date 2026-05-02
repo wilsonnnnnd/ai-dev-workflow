@@ -1,5 +1,6 @@
 import { CONTEXT_DIR, PROJECT_TYPES } from "../constants.js";
 import { exists } from "../fs-utils.js";
+import { hasPythonProjectFile, listPythonFiles } from "../python-utils.js";
 
 function hasFrontendStructure(structure) {
     return structure.some((item) =>
@@ -21,6 +22,62 @@ function hasBackendStructure(structure) {
             "src/config/",
         ].includes(item.label),
     );
+}
+
+function hasPathWithKeyword(paths, keywords) {
+    return paths.some((itemPath) => {
+        const lower = itemPath.toLowerCase();
+
+        return keywords.some((keyword) => lower.includes(keyword));
+    });
+}
+
+function detectPythonRiskAreas() {
+    if (!hasPythonProjectFile()) {
+        return [];
+    }
+
+    const paths = [
+        ...listPythonFiles(),
+        "app/auth",
+        "app/db",
+        "app/database",
+        "app/migrations",
+        "alembic",
+        "app/ai",
+        "app/integrations",
+        "app/clients",
+    ].filter((itemPath) => exists(itemPath));
+    const risks = [];
+
+    if (hasPathWithKeyword(paths, ["auth", "jwt", "oauth"])) {
+        risks.push("auth, JWT, and OAuth code can affect access control and user security");
+    }
+
+    if (hasPathWithKeyword(paths, ["db", "database", "migrations", "alembic"])) {
+        risks.push("database, migration, and Alembic changes can affect persistence and deploy safety");
+    }
+
+    if (
+        exists(".env.example") ||
+        hasPathWithKeyword(paths, ["config.py", "settings.py"])
+    ) {
+        risks.push("environment, config, and settings files can affect multiple runtime paths");
+    }
+
+    if (hasPathWithKeyword(paths, ["prompt", "prompts", "llm", "app/ai/client"])) {
+        risks.push("AI/LLM prompts and client code can change model behavior and external costs");
+    }
+
+    if (hasPathWithKeyword(paths, ["integration", "integrations", "client", "clients", "external"])) {
+        risks.push("external API integration clients can break third-party workflows");
+    }
+
+    if (hasPathWithKeyword(paths, ["payment", "stripe", "tax", "compliance"])) {
+        risks.push("payment, tax, and compliance code needs extra validation before changes");
+    }
+
+    return risks;
 }
 
 export function detectRiskAreas(projectType, structure, sharedUi) {
@@ -94,6 +151,8 @@ export function detectRiskAreas(projectType, structure, sharedUi) {
             "database schema and migration changes can affect persistence and deployment safety",
         );
     }
+
+    risks.push(...detectPythonRiskAreas());
 
     return [...new Set(risks)];
 }

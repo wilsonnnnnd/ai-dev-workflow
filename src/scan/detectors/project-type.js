@@ -9,6 +9,10 @@ import {
 } from "../constants.js";
 import { anyExists, exists } from "../fs-utils.js";
 import { getPackageJson } from "../package-utils.js";
+import {
+    hasFastApiSignal,
+    hasPythonProjectFile,
+} from "../python-utils.js";
 
 function hasBackendDependency() {
     const pkg = getPackageJson();
@@ -31,13 +35,26 @@ function detectBackendSignals() {
         strong:
             anyExists(STRONG_BACKEND_PATHS) ||
             anyExists(STRONG_BACKEND_FILES) ||
-            hasBackendDependency(),
+            hasBackendDependency() ||
+            hasFastApiSignal(),
         weak: anyExists(WEAK_BACKEND_PATHS),
     };
 }
 
+function detectWebSignals(hasPython) {
+    if (!hasPython) {
+        return anyExists(WEB_PATHS) || anyExists(NEXT_CONFIG_PATHS);
+    }
+
+    return (
+        anyExists(NEXT_CONFIG_PATHS) ||
+        anyExists(WEB_PATHS.filter((webPath) => webPath !== "app"))
+    );
+}
+
 export function detectProjectType() {
-    const hasWeb = anyExists(WEB_PATHS) || anyExists(NEXT_CONFIG_PATHS);
+    const hasPython = hasPythonProjectFile();
+    const hasWeb = detectWebSignals(hasPython);
     const backendSignals = detectBackendSignals();
     const hasBackend = backendSignals.strong;
     const hasCli = exists("bin") && exists("package.json");
@@ -56,6 +73,10 @@ export function detectProjectType() {
     }
 
     if (hasBackend) {
+        return PROJECT_TYPES.BACKEND_APP;
+    }
+
+    if (hasPython) {
         return PROJECT_TYPES.BACKEND_APP;
     }
 

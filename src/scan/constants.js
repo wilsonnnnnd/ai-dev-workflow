@@ -68,6 +68,21 @@ export const BACKEND_DEPENDENCIES = [
     "@nestjs",
 ];
 
+export const PYTHON_PROJECT_FILES = [
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "poetry.lock",
+    "Pipfile",
+];
+
+export const FASTAPI_ENTRYPOINT_PATHS = [
+    "app/main.py",
+    "main.py",
+    "src/main.py",
+    "app/api/main.py",
+];
+
 export const WEAK_BACKEND_PATHS = [
     "services",
     "src/services",

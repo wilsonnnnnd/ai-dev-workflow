@@ -1,5 +1,6 @@
 import { CONTEXT_DIR, PROJECT_TYPES } from "../constants.js";
 import { exists } from "../fs-utils.js";
+import { hasPythonProjectFile } from "../python-utils.js";
 
 export const STRUCTURE_MAP = [
     { path: "bin", description: "CLI entrypoints and command handlers" },
@@ -16,6 +17,14 @@ export const STRUCTURE_MAP = [
         description: "Claude-compatible skill modules and executor logic",
     },
     { path: "app", description: "app-router pages and layouts" },
+    { path: "app/routers", description: "FastAPI route modules and request handlers" },
+    { path: "app/api", description: "FastAPI API routing and endpoint modules" },
+    { path: "app/services", description: "backend service-layer and business logic modules" },
+    { path: "app/models", description: "backend model and persistence definitions" },
+    { path: "app/schemas", description: "request, response, and validation schemas" },
+    { path: "app/db", description: "database connection and persistence helpers" },
+    { path: "app/core", description: "backend configuration and core utilities" },
+    { path: "app/ai", description: "AI/LLM integration and prompt-related backend code" },
     {
         path: "src/app",
         description: "app-router pages and layouts under src",
@@ -111,11 +120,18 @@ export function detectStructure(projectType) {
 
     return filtered.map((item) => ({
         label: `${item.path}/`,
-        description: item.description,
+        description:
+            item.path === "app" && hasPythonProjectFile()
+                ? "Python backend application package"
+                : item.description,
     }));
 }
 
 export function getStructureDescription(path) {
+    if (path === "app" && hasPythonProjectFile()) {
+        return "Python backend application package";
+    }
+
     return STRUCTURE_MAP.find((item) => item.path === path)?.description ?? null;
 }
 

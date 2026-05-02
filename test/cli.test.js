@@ -120,6 +120,88 @@ test("CLI behavior", async (t) => {
         });
     });
 
+    await t.test("detects Python projects from requirements.txt", async () => {
+        await withTempProject(() => {
+            writeFile("requirements.txt", "pytest==8.0.0\n");
+
+            assert.equal(detectProjectType(), PROJECT_TYPES.BACKEND_APP);
+        });
+    });
+
+    await t.test("detects FastAPI projects from dependency or source signals", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("requirements.txt", "fastapi==0.110.0\nuvicorn==0.27.0\n");
+            writeFile("app/main.py", "from fastapi import FastAPI\n\napp = FastAPI()\n");
+
+            const result = await withMutedConsole(() => runScan());
+            const projectContext = fs.readFileSync(".aidw/project.md", "utf-8");
+
+            assert.equal(result.project.type, PROJECT_TYPES.BACKEND_APP);
+            assert.deepEqual(result.project.entryPoints, ["app/main.py"]);
+            assert.match(projectContext, /Python FastAPI backend web project/);
+            assert.match(projectContext, /- FastAPI/);
+        });
+
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("requirements.txt", "pytest==8.0.0\n");
+            writeFile("src/main.py", "from fastapi import FastAPI\n\napp = FastAPI()\n");
+
+            const result = await withMutedConsole(() => runScan());
+
+            assert.equal(result.project.type, PROJECT_TYPES.BACKEND_APP);
+            assert.deepEqual(result.project.entryPoints, ["src/main.py"]);
+        });
+    });
+
+    await t.test("scan detects FastAPI entrypoints, reusable areas, and risk areas", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("requirements.txt", "fastapi==0.110.0\nuvicorn==0.27.0\n");
+            writeFile("app/main.py", "from fastapi import FastAPI\n\napp = FastAPI()\n");
+            writeFile("app/routers/users.py", "from fastapi import APIRouter\n");
+            writeFile("app/services/user_service.py", "def list_users():\n    return []\n");
+            writeFile("app/schemas/user.py", "class UserSchema:\n    pass\n");
+            writeFile("app/db/session.py", "DATABASE_URL = 'sqlite:///app.db'\n");
+            writeFile("app/auth/jwt.py", "JWT_ALGORITHM = 'HS256'\n");
+            writeFile("app/ai/prompts.py", "SYSTEM_PROMPT = 'help'\n");
+            writeFile("app/core/settings.py", "API_KEY = ''\n");
+            writeFile("tests/test_main.py", "def test_main():\n    assert True\n");
+
+            await withMutedConsole(() => runScan());
+
+            const projectContext = fs.readFileSync(".aidw/project.md", "utf-8");
+            const entrypointIndex = JSON.parse(
+                fs.readFileSync(".aidw/index/entrypoints.json", "utf-8"),
+            );
+            const fileGroups = JSON.parse(
+                fs.readFileSync(".aidw/index/file-groups.json", "utf-8"),
+            );
+
+            assert.ok(
+                entrypointIndex.some(
+                    (entrypoint) =>
+                        entrypoint.path === "app/main.py" &&
+                        entrypoint.name === "FastAPI app" &&
+                        entrypoint.source === "heuristic",
+                ),
+            );
+            assert.match(projectContext, /app\/routers\/ contains FastAPI route modules/);
+            assert.match(projectContext, /app\/services\/ contains reusable business logic/);
+            assert.match(projectContext, /app\/schemas\/ contains request, response/);
+            assert.match(projectContext, /tests\/ contains Python automated tests/);
+            assert.match(projectContext, /auth, JWT, and OAuth code/);
+            assert.match(projectContext, /database, migration, and Alembic changes/);
+            assert.match(projectContext, /AI\/LLM prompts and client code/);
+            assert.match(projectContext, /environment, config, and settings files/);
+            assert.ok(fileGroups.some((group) => group.path === "app/routers"));
+            assert.ok(fileGroups.some((group) => group.path === "app/services"));
+            assert.ok(fileGroups.some((group) => group.path === "app/schemas"));
+            assert.ok(fileGroups.some((group) => group.path === "tests"));
+        });
+    });
+
     await t.test("init does not overwrite existing files", async () => {
         await withTempProject(async () => {
             writeFile("AGENTS.md", "custom instructions\n");

@@ -25,8 +25,9 @@ import {
     statSafe,
     writeText,
 } from "../fs-utils.js";
+import { getFastApiEntrypointCandidates } from "../python-utils.js";
 
-const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]);
+const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".py"]);
 const SKIPPED_DIRS = new Set([
     ".git",
     ".aidw",
@@ -101,6 +102,14 @@ function isConfigFile(filePath) {
         basename.startsWith("vitest.config") ||
         basename.startsWith("rollup.config") ||
         basename.startsWith("webpack.config") ||
+        basename === "pyproject.toml" ||
+        basename === "requirements.txt" ||
+        basename === "setup.py" ||
+        basename === "Pipfile" ||
+        basename === "poetry.lock" ||
+        basename === ".env.example" ||
+        basename === "config.py" ||
+        basename === "settings.py" ||
         basename === ".eslintrc" ||
         basename === ".prettierrc"
     );
@@ -116,6 +125,10 @@ function classifyFile(filePath) {
     }
 
     if (filePath.startsWith("src/")) {
+        return "source";
+    }
+
+    if (filePath.startsWith("app/") && filePath.endsWith(".py")) {
         return "source";
     }
 
@@ -153,6 +166,7 @@ function filePriority(filePath) {
     }
     if (
         filePath.startsWith("api/") ||
+        filePath.startsWith("app/") ||
         filePath.startsWith("routes/") ||
         filePath.startsWith("services/") ||
         filePath.startsWith("components/") ||
@@ -185,6 +199,30 @@ function describeFile(filePath, type) {
 
     if (filePath === "package.json") {
         return "Package metadata, scripts, and CLI binary configuration.";
+    }
+
+    if (filePath === "requirements.txt" || filePath === "pyproject.toml") {
+        return "Python project dependencies and packaging configuration.";
+    }
+
+    if (filePath.endsWith("main.py") && filePath.includes("app")) {
+        return "Likely FastAPI application entrypoint.";
+    }
+
+    if (filePath.includes("/routers/") || filePath.includes("/api/")) {
+        return "API route and endpoint handling code.";
+    }
+
+    if (filePath.includes("/services/")) {
+        return "Backend service-layer and business logic code.";
+    }
+
+    if (filePath.includes("/schemas/")) {
+        return "Request, response, and validation schema definitions.";
+    }
+
+    if (filePath.includes("/db/") || filePath.includes("/database/")) {
+        return "Database connection and persistence helper code.";
     }
 
     if (filePath.endsWith("context.js")) {
@@ -417,6 +455,10 @@ function groupPathForFile(filePath) {
         return parts.slice(0, 2).join("/");
     }
 
+    if (parts[0] === "app" && parts.length >= 3) {
+        return parts.slice(0, 2).join("/");
+    }
+
     if (["api", "routes", "services", "components", "test", "tests", "bin"].includes(parts[0])) {
         return parts[0];
     }
@@ -433,6 +475,30 @@ function summarizeGroup(groupPath) {
     }
     if (groupPath.startsWith("src/")) {
         return "Source modules for application behavior.";
+    }
+    if (groupPath === "app") {
+        return "Python backend application package.";
+    }
+    if (groupPath === "app/routers" || groupPath === "app/api") {
+        return "FastAPI route modules and endpoint handlers.";
+    }
+    if (groupPath === "app/services") {
+        return "Reusable backend services and business logic.";
+    }
+    if (groupPath === "app/schemas") {
+        return "Request, response, and validation schemas.";
+    }
+    if (groupPath === "app/models") {
+        return "Backend model and persistence definitions.";
+    }
+    if (groupPath === "app/db") {
+        return "Database connection and persistence helpers.";
+    }
+    if (groupPath === "app/core") {
+        return "Backend configuration and core utilities.";
+    }
+    if (groupPath === "app/ai") {
+        return "AI/LLM integration and prompt-related backend code.";
     }
     if (groupPath === "test" || groupPath === "tests") {
         return "Automated tests and regression coverage.";
@@ -465,6 +531,7 @@ function groupPriority(groupPath) {
     }
     if (
         groupPath.includes("api") ||
+        groupPath.startsWith("app/") ||
         groupPath.includes("routes") ||
         groupPath.includes("services") ||
         groupPath.includes("components")
@@ -568,6 +635,19 @@ export function buildEntrypointIndex() {
                 command: path.basename(filePath, path.extname(filePath)),
                 description: trimDescription("Likely CLI entry point under bin/."),
                 confidence: 0.7,
+                source: "heuristic",
+            });
+        }
+    }
+
+    for (const filePath of getFastApiEntrypointCandidates()) {
+        if (!byPath.has(filePath)) {
+            byPath.set(filePath, {
+                name: "FastAPI app",
+                path: filePath,
+                command: null,
+                description: trimDescription("FastAPI application entrypoint."),
+                confidence: 0.85,
                 source: "heuristic",
             });
         }

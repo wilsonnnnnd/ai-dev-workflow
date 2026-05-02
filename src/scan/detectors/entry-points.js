@@ -1,5 +1,6 @@
 import { PROJECT_TYPES } from "../constants.js";
 import { exists, listDirSafe } from "../fs-utils.js";
+import { getFastApiEntrypointCandidates } from "../python-utils.js";
 
 const WEB_AND_BACKEND_ENTRIES = [
     ["app/page.tsx", "primary app page entry"],
@@ -58,6 +59,13 @@ export function detectEntryPoints(projectType) {
         if (exists(relativePath)) {
             entries.push({ label: relativePath, description });
         }
+    }
+
+    for (const filePath of getFastApiEntrypointCandidates()) {
+        entries.push({
+            label: filePath,
+            description: "FastAPI application entrypoint",
+        });
     }
 
     return entries;

@@ -1,5 +1,18 @@
 import { CONTEXT_DIR, PROJECT_TYPES } from "../constants.js";
 import { exists, findFirstExisting, listDirSafe } from "../fs-utils.js";
+import { hasPythonProjectFile } from "../python-utils.js";
+
+const PYTHON_REUSABLE_AREAS = [
+    ["app/routers", "app/routers/ contains FastAPI route modules and request handlers"],
+    ["app/api", "app/api/ contains API routing and versioned endpoint modules"],
+    ["app/services", "app/services/ contains reusable business logic and service-layer code"],
+    ["app/models", "app/models/ contains domain or persistence model definitions"],
+    ["app/schemas", "app/schemas/ contains request, response, and validation schemas"],
+    ["app/db", "app/db/ contains database session, connection, and persistence helpers"],
+    ["app/core", "app/core/ contains shared backend configuration and core utilities"],
+    ["app/ai", "app/ai/ contains AI/LLM integration and prompt-related backend code"],
+    ["tests", "tests/ contains Python automated tests and regression coverage"],
+];
 
 export function detectSharedUi() {
     const uiDir = findFirstExisting(["components/ui", "src/components/ui"]);
@@ -57,6 +70,15 @@ export function detectUtilityDirs() {
         "src/server",
         "api",
         "src/api",
+        "app/routers",
+        "app/api",
+        "app/services",
+        "app/models",
+        "app/schemas",
+        "app/db",
+        "app/core",
+        "app/ai",
+        "tests",
         "prisma",
     ];
 
@@ -81,6 +103,9 @@ function buildCliReusableSystem() {
 }
 
 function buildBackendReusableSystem(utilityDirs) {
+    const pythonAreas = PYTHON_REUSABLE_AREAS
+        .filter(([dir]) => exists(dir))
+        .map(([, summary]) => summary);
     return {
         sections: [
             {
@@ -100,6 +125,14 @@ function buildBackendReusableSystem(utilityDirs) {
                         ? utilityDirs.map((dir) => `${dir}/`)
                         : ["No common utility directories detected"],
             },
+            ...(pythonAreas.length > 0
+                ? [
+                      {
+                          title: "Python Backend Areas",
+                          items: pythonAreas,
+                      },
+                  ]
+                : []),
         ],
     };
 }
@@ -111,7 +144,8 @@ export function detectReusableSystem(projectType, sharedUi, utilityDirs) {
 
     if (
         projectType === PROJECT_TYPES.BACKEND_APP ||
-        projectType === PROJECT_TYPES.FULLSTACK_APP
+        projectType === PROJECT_TYPES.FULLSTACK_APP ||
+        hasPythonProjectFile()
     ) {
         const sections = buildBackendReusableSystem(utilityDirs).sections;
 

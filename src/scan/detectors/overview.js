@@ -3,7 +3,11 @@ import { PROJECT_TYPES } from "../constants.js";
 export function buildOverview(projectType, techStack) {
     const overview = [];
 
-    if (projectType === PROJECT_TYPES.CLI_TOOL) {
+    if (techStack.includes("FastAPI")) {
+        overview.push("This is a Python FastAPI backend web project.");
+    } else if (techStack.includes("Python")) {
+        overview.push("This is a Python project.");
+    } else if (projectType === PROJECT_TYPES.CLI_TOOL) {
         overview.push("This is a Node.js CLI tooling project.");
     } else if (projectType === PROJECT_TYPES.FULLSTACK_APP) {
         overview.push(
@@ -21,6 +25,8 @@ export function buildOverview(projectType, techStack) {
 
     if (techStack.includes("TypeScript")) {
         overview.push("The project uses TypeScript.");
+    } else if (techStack.includes("Python")) {
+        overview.push("The project uses Python.");
     } else if (techStack.includes("JavaScript")) {
         overview.push("The project uses JavaScript.");
     }
