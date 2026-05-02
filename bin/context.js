@@ -115,6 +115,22 @@ function truncateText(text, maxLength) {
     return `${text.slice(0, maxLength - 15).trimEnd()}\n[truncated]`;
 }
 
+function formatScanSummaryLines(summary) {
+    if (!summary || typeof summary !== "object") {
+        return "- None";
+    }
+
+    const lines = [
+        summary.generatedAt ? `- generatedAt: ${summary.generatedAt}` : "- generatedAt: -",
+        Number.isFinite(Number(summary.indexedFiles)) ? `- indexedFiles: ${summary.indexedFiles}` : "- indexedFiles: -",
+        Number.isFinite(Number(summary.indexedSymbols)) ? `- indexedSymbols: ${summary.indexedSymbols}` : "- indexedSymbols: -",
+        Number.isFinite(Number(summary.fileGroups)) ? `- fileGroups: ${summary.fileGroups}` : "- fileGroups: -",
+        typeof summary.truncated !== "undefined" ? `- truncated: ${String(summary.truncated)}` : "- truncated: -",
+    ];
+
+    return lines.join("\n");
+}
+
 function readPackageMetadata() {
     const pkg = readJson("package.json");
 
@@ -218,7 +234,8 @@ function selectNextTask(registry) {
     }) ?? null;
 }
 
-function summarizeTaskDetail(content) {
+function summarizeTaskDetail(content, options = {}) {
+    const maxChars = Number.isFinite(Number(options.maxChars)) ? Number(options.maxChars) : 3000;
     const headings = ["Goal", "Scope", "Acceptance Criteria"];
     const sections = headings
         .map((heading) => ({
@@ -228,12 +245,14 @@ function summarizeTaskDetail(content) {
         .filter((section) => section.body);
 
     if (sections.length === 0) {
-        return truncateText(content.trim(), 3000);
+        return truncateText(content.trim(), maxChars);
     }
 
-    return sections
+    const joined = sections
         .map((section) => `## ${section.heading}\n\n${section.body}`)
         .join("\n\n");
+
+    return truncateText(joined, maxChars);
 }
 
 function summarizeDependency(task) {
@@ -475,6 +494,7 @@ function buildBrief(options = {}) {
     const metadata = readPackageMetadata();
     const includedSources = [];
     const digest = Boolean(options.digest);
+    const summaryJson = Boolean(options.summaryJson);
     const rawLoop = Boolean(options.rawLoop);
     const loopEvents = listRecentLoopEvents({ limit: digest ? 3 : 6 });
 
@@ -503,17 +523,19 @@ function buildBrief(options = {}) {
 
     if (summary) {
         includedSources.push(CONTEXT_INDEX_SUMMARY_PATH);
-        if (digest) {
-            const minimal = {
-                generatedAt: summary.generatedAt,
-                indexedFiles: summary.indexedFiles,
-                indexedSymbols: summary.indexedSymbols,
-                fileGroups: summary.fileGroups,
-                truncated: summary.truncated,
-            };
-            parts.push(`## Scan Summary (Digest)\n\n\`\`\`json\n${JSON.stringify(minimal, null, 2)}\n\`\`\``);
+        const minimal = {
+            generatedAt: summary.generatedAt,
+            indexedFiles: summary.indexedFiles,
+            indexedSymbols: summary.indexedSymbols,
+            fileGroups: summary.fileGroups,
+            truncated: summary.truncated,
+        };
+        const heading = digest ? "## Scan Summary (Digest)" : "## Scan Summary";
+        if (summaryJson) {
+            const payload = digest ? minimal : summary;
+            parts.push(`${heading}\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``);
         } else {
-            parts.push(`## Scan Summary\n\n\`\`\`json\n${JSON.stringify(summary, null, 2)}\n\`\`\``);
+            parts.push(`${heading}\n\n${formatScanSummaryLines(minimal)}`);
         }
     }
 
@@ -569,7 +591,7 @@ function buildTaskContext(task, registry, level, limits, warnings, options = {})
     if (task.file && exists(task.file)) {
         includedSources.push(task.file);
         detailContent = readText(task.file);
-        parts.push(`## Selected Task Detail\n\n${summarizeTaskDetail(detailContent)}`);
+        parts.push(`## Selected Task Detail\n\n${summarizeTaskDetail(detailContent, { maxChars: digest ? 1600 : 3000 })}`);
     } else if (task.file) {
         warnings.push(`Selected task detail file is missing: ${task.file}.`);
     } else {
@@ -882,16 +904,17 @@ export async function runContext(args = []) {
     const manifest = args.includes("--manifest");
     const verbose = args.includes("--verbose");
     const rawLoop = args.includes("--raw-loop");
+    const summaryJson = args.includes("--summary-json");
     const noCache = args.includes("--no-cache");
     let output;
 
     if (subcommand === "brief") {
-        const cached = digest && !noCache ? getCachedBriefDigest() : null;
+        const cached = digest && !noCache && !summaryJson ? getCachedBriefDigest() : null;
         if (cached) {
             output = cached;
         } else {
-            output = buildBrief({ digest, manifest, verbose, rawLoop });
-            if (digest && !noCache) {
+            output = buildBrief({ digest, manifest, verbose, rawLoop, summaryJson });
+            if (digest && !noCache && !summaryJson) {
                 writeBriefDigestCache(output);
             }
         }
@@ -912,6 +935,7 @@ export async function runContext(args = []) {
         console.log("  --manifest   Include full context manifest footer");
         console.log("  --verbose    Print all warnings instead of summarizing");
         console.log("  --raw-loop   Include raw recent loop events in addition to digest");
+        console.log("  --summary-json  Print scan summary as JSON (brief only)");
         console.log("  --no-cache   Disable brief digest cache");
         process.exitCode = 1;
         return {

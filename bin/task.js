@@ -237,7 +237,7 @@ function readTaskDetail(task, warnings) {
     return readText(task.file);
 }
 
-function renderTaskOutputManifest({
+function renderTaskOutputManifestText({
     level,
     taskId,
     deep,
@@ -263,44 +263,105 @@ function renderTaskOutputManifest({
     ].join("\n");
 }
 
-function renderPromptManifest(options) {
-    return renderTaskOutputManifest({
-        ...options,
-        level: "task prompt",
-    });
+function renderWarningsSummary(warnings, options = {}) {
+    const unique = [...new Set(warnings)];
+    if (unique.length === 0) {
+        return "";
+    }
+    if (options.verbose) {
+        return `## Warnings\n\n${formatList(unique)}`;
+    }
+    const shown = unique.slice(0, 3);
+    const more = unique.length - shown.length;
+    const suffix = more > 0 ? `(+${more} more; use --verbose)` : "";
+    return `## Warnings\n\n${formatList(shown)}${suffix ? `\n\n- ${suffix}` : ""}`;
 }
 
-function renderChecklistManifest({ taskId, deep, maxChars, warnings }) {
-    return renderTaskOutputManifest({
+function renderTaskOutputMeta(
+    {
+        level,
         taskId,
         deep,
         maxChars,
         warnings,
-        level: "task checklist",
-    });
+        excludedSources = [],
+    },
+    options = {},
+) {
+    const uniqueWarnings = [...new Set(warnings)];
+    const lines = [
+        "## Context Meta",
+        "",
+        `- level: ${level}`,
+        `- selected task id: ${taskId ?? "none"}`,
+        `- limits: maxChars=${maxChars}, worksetMode=${deep ? "deep" : "default"}`,
+        `- warnings: ${uniqueWarnings.length}`,
+    ];
+
+    if (options.manifest) {
+        lines.push(
+            "",
+            renderTaskOutputManifestText({
+                level,
+                taskId,
+                deep,
+                maxChars,
+                warnings: uniqueWarnings,
+                excludedSources,
+            }),
+        );
+    }
+
+    return lines.join("\n");
 }
 
-function renderPrManifest({ taskId, deep, maxChars, warnings }) {
-    return renderTaskOutputManifest({
-        taskId,
-        deep,
-        maxChars,
-        warnings,
-        level: "task pr",
-        excludedSources: ["git diff", "GitHub data"],
-    });
+function renderTaskOutputFooter(manifestOptions, options = {}) {
+    const warningsBlock = renderWarningsSummary(manifestOptions.warnings, options);
+    const metaBlock = renderTaskOutputMeta(manifestOptions, options);
+    return [warningsBlock, metaBlock].filter(Boolean).join("\n\n");
 }
 
-function renderBoundedPrompt(parts, manifest, maxChars) {
+function renderPromptFooter(options, outputOptions) {
+    return renderTaskOutputFooter(
+        {
+            ...options,
+            level: "task prompt",
+        },
+        outputOptions,
+    );
+}
+
+function renderChecklistFooter(options, outputOptions) {
+    return renderTaskOutputFooter(
+        {
+            ...options,
+            level: "task checklist",
+        },
+        outputOptions,
+    );
+}
+
+function renderPrFooter(options, outputOptions) {
+    return renderTaskOutputFooter(
+        {
+            ...options,
+            level: "task pr",
+            excludedSources: ["git diff", "GitHub data"],
+        },
+        outputOptions,
+    );
+}
+
+function renderBoundedPrompt(parts, footer, maxChars) {
     let body = parts.filter(Boolean).join("\n\n").trim();
-    let output = `${body}\n\n${manifest}\n`;
+    let output = `${body}${footer ? `\n\n${footer}` : ""}\n`;
 
     if (output.length <= maxChars) {
         return output;
     }
 
-    body = `${body.slice(0, Math.max(0, maxChars - manifest.length - 80)).trimEnd()}\n[truncated]`;
-    output = `${body}\n\n${manifest}\n`;
+    body = `${body.slice(0, Math.max(0, maxChars - String(footer ?? "").length - 80)).trimEnd()}\n[truncated]`;
+    output = `${body}${footer ? `\n\n${footer}` : ""}\n`;
 
     if (output.length <= maxChars) {
         return output;
@@ -364,7 +425,7 @@ function buildTaskPrDescription(taskId, options = {}) {
             "# Pull Request Description",
             "Warning: missing task id.",
             "Usage: repo-context-kit task pr <taskId> [--deep]",
-        ], renderPrManifest({ taskId: null, deep, maxChars, warnings }), maxChars);
+        ], renderPrFooter({ taskId: null, deep, maxChars, warnings }, options), maxChars);
     }
 
     if (!registry.exists) {
@@ -373,7 +434,7 @@ function buildTaskPrDescription(taskId, options = {}) {
             "# Pull Request Description",
             `Warning: ${TASK_REGISTRY_PATH} is missing.`,
             "A PR description could not be generated because the task registry is required to resolve task IDs.",
-        ], renderPrManifest({ taskId, deep, maxChars, warnings }), maxChars);
+        ], renderPrFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
     }
 
     const task = findTaskById(registry, taskId);
@@ -384,7 +445,7 @@ function buildTaskPrDescription(taskId, options = {}) {
             "# Pull Request Description",
             `Warning: task not found: ${taskId}.`,
             `Check ${TASK_REGISTRY_PATH} for available task IDs.`,
-        ], renderPrManifest({ taskId, deep, maxChars, warnings }), maxChars);
+        ], renderPrFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
     }
 
     const taskDetail = readTaskDetail(task, warnings);
@@ -474,7 +535,7 @@ function buildTaskPrDescription(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderPrManifest({ taskId: task.id, deep, maxChars, warnings }),
+        renderPrFooter({ taskId: task.id, deep, maxChars, warnings }, options),
         maxChars,
     );
 }
@@ -492,7 +553,7 @@ function buildTaskChecklist(taskId, options = {}) {
             "# Task Test Checklist",
             "Warning: missing task id.",
             "Usage: repo-context-kit task checklist <taskId> [--deep]",
-        ], renderChecklistManifest({ taskId: null, deep, maxChars, warnings }), maxChars);
+        ], renderChecklistFooter({ taskId: null, deep, maxChars, warnings }, options), maxChars);
     }
 
     if (!registry.exists) {
@@ -501,7 +562,7 @@ function buildTaskChecklist(taskId, options = {}) {
             "# Task Test Checklist",
             `Warning: ${TASK_REGISTRY_PATH} is missing.`,
             "A checklist could not be generated because the task registry is required to resolve task IDs.",
-        ], renderChecklistManifest({ taskId, deep, maxChars, warnings }), maxChars);
+        ], renderChecklistFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
     }
 
     const task = findTaskById(registry, taskId);
@@ -512,7 +573,7 @@ function buildTaskChecklist(taskId, options = {}) {
             "# Task Test Checklist",
             `Warning: task not found: ${taskId}.`,
             `Check ${TASK_REGISTRY_PATH} for available task IDs.`,
-        ], renderChecklistManifest({ taskId, deep, maxChars, warnings }), maxChars);
+        ], renderChecklistFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
     }
 
     const taskDetail = readTaskDetail(task, warnings);
@@ -597,7 +658,7 @@ function buildTaskChecklist(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderChecklistManifest({ taskId: task.id, deep, maxChars, warnings }),
+        renderChecklistFooter({ taskId: task.id, deep, maxChars, warnings }, options),
         maxChars,
     );
 }
@@ -616,8 +677,8 @@ function buildTaskPrompt(taskId, options = {}) {
         return renderBoundedPrompt([
             "# Task Implementation Prompt",
             "Warning: missing task id.",
-            "Usage: repo-context-kit task prompt <taskId> [--deep] [--compact] [--full-detail] [--full-workset]",
-        ], renderPromptManifest({ taskId: null, deep, maxChars, warnings }), maxChars);
+            "Usage: repo-context-kit task prompt <taskId> [--deep] [--compact] [--full-detail] [--full-workset] [--manifest] [--verbose]",
+        ], renderPromptFooter({ taskId: null, deep, maxChars, warnings }, options), maxChars);
     }
 
     if (!registry.exists) {
@@ -626,7 +687,7 @@ function buildTaskPrompt(taskId, options = {}) {
             "# Task Implementation Prompt",
             `Warning: ${TASK_REGISTRY_PATH} is missing.`,
             "A task prompt could not be generated because the task registry is required to resolve task IDs.",
-        ], renderPromptManifest({ taskId, deep, maxChars, warnings }), maxChars);
+        ], renderPromptFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
     }
 
     const task = findTaskById(registry, taskId);
@@ -637,7 +698,7 @@ function buildTaskPrompt(taskId, options = {}) {
             "# Task Implementation Prompt",
             `Warning: task not found: ${taskId}.`,
             `Check ${TASK_REGISTRY_PATH} for available task IDs.`,
-        ], renderPromptManifest({ taskId, deep, maxChars, warnings }), maxChars);
+        ], renderPromptFooter({ taskId, deep, maxChars, warnings }, options), maxChars);
     }
 
     const taskDetail = readTaskDetail(task, warnings);
@@ -659,7 +720,7 @@ function buildTaskPrompt(taskId, options = {}) {
             : [
                   "## Role",
                   "",
-                  "You are an AI coding tool working inside this repository. Follow repo-context-kit boundaries, use the provided project context, and make only the changes needed for the selected task.",
+                  "You are an AI coding tool in this repository. Implement only this task, follow scope/AC, and keep changes minimal and safe.",
               ].join("\n"),
         compact
             ? [
@@ -681,7 +742,7 @@ function buildTaskPrompt(taskId, options = {}) {
             : [
                   "## Project Context",
                   "",
-                  "Use the concise project context and boundaries in the workset below. Generated index files are context sources only and must not be edited manually.",
+                  "Use the bounded workset below for context. Do not edit generated `.aidw/index/*` files manually.",
               ].join("\n"),
         compact
             ? [
@@ -712,8 +773,6 @@ function buildTaskPrompt(taskId, options = {}) {
             : [
                   "## Relevant Workset",
                   "",
-                  "The following bounded workset was generated by the progressive context loader.",
-                  "",
                   workset.trim(),
               ].join("\n"),
         compact
@@ -722,12 +781,9 @@ function buildTaskPrompt(taskId, options = {}) {
                   "## Implementation Rules",
                   "",
                   "- Only implement this task.",
-                  "- Do not modify generated `.aidw/index/*` files manually.",
-                  "- Do not change unrelated files.",
-                  "- Respect existing project style and structure.",
-                  "- Keep changes minimal and focused.",
-                  "- Add or update tests when appropriate.",
-                  "- If context is insufficient, ask for more specific context instead of guessing.",
+                  "- Keep changes minimal; preserve backward compatibility.",
+                  "- Do not edit generated `.aidw/index/*` files manually.",
+                  "- If context is insufficient, ask for specific missing inputs.",
               ].join("\n"),
         [
             "## Required Final Response Format",
@@ -746,7 +802,7 @@ function buildTaskPrompt(taskId, options = {}) {
 
     return renderBoundedPrompt(
         parts,
-        renderPromptManifest({ taskId: task.id, deep, maxChars, warnings }),
+        renderPromptFooter({ taskId: task.id, deep, maxChars, warnings }, options),
         maxChars,
     );
 }
@@ -756,12 +812,16 @@ export async function runTask(args = []) {
     const fullWorkset = args.includes("--full-workset");
     const fullDetail = args.includes("--full-detail");
     const compact = args.includes("--compact");
+    const manifest = args.includes("--manifest");
+    const verbose = args.includes("--verbose");
 
     if (subcommand === "pr") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
         const output = buildTaskPrDescription(taskId, {
             deep: args.includes("--deep"),
             fullWorkset,
+            manifest,
+            verbose,
         });
 
         console.log(output.trimEnd());
@@ -776,6 +836,8 @@ export async function runTask(args = []) {
         const output = buildTaskChecklist(taskId, {
             deep: args.includes("--deep"),
             fullWorkset,
+            manifest,
+            verbose,
         });
 
         console.log(output.trimEnd());
@@ -792,6 +854,8 @@ export async function runTask(args = []) {
             fullWorkset,
             fullDetail,
             compact,
+            manifest,
+            verbose,
         });
 
         console.log(output.trimEnd());

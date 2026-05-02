@@ -55,6 +55,12 @@ npx repo-context-kit task pr T-001 --deep
 
 These commands are bounded. They reuse the same progressive workset logic, avoid dumping full generated indexes, and do not execute tasks, tests, git commands, GitHub actions, or AI agents.
 
+Lowest-token defaults:
+
+- Prefer `task prompt <taskId> --compact` and the default (digest) workset output.
+- Use `--full-detail`, `--full-workset`, or `--manifest` only when you need expanded context.
+- Use `context brief --summary-json` only when you need the scan summary as JSON.
+
 ## Core Commands
 
 - `npx repo-context-kit init` - install workflow + template files into the current repo (use `--force` to refresh known managed files)
