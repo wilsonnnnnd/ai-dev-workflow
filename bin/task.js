@@ -1134,6 +1134,10 @@ export async function runTask(args = []) {
 
     if (subcommand === "pr") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
+        const registry = parseTaskRegistry();
+        if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
+            process.exitCode = 1;
+        }
         const output = buildTaskPrDescription(taskId, {
             deep: deepLocked,
             fullWorkset,
@@ -1155,6 +1159,10 @@ export async function runTask(args = []) {
 
     if (subcommand === "checklist") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
+        const registry = parseTaskRegistry();
+        if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
+            process.exitCode = 1;
+        }
         const output = buildTaskChecklist(taskId, {
             deep: deepLocked,
             fullWorkset,
@@ -1176,6 +1184,10 @@ export async function runTask(args = []) {
 
     if (subcommand === "prompt") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
+        const registry = parseTaskRegistry();
+        if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
+            process.exitCode = 1;
+        }
         const output = buildTaskPrompt(taskId, {
             deep: deepLocked,
             fullWorkset,

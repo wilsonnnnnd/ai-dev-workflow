@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { runContext } from "./context.js";
+import { runBudget } from "./budget.js";
 import { runGate } from "./gate.js";
 import { runInit } from "./init.js";
 import { runLoop } from "./loop.js";
@@ -44,6 +45,8 @@ Commands:
               Run the selected task's test command when tests are confirmed and token is valid
   loop report [--task <taskId>]
               Print context-loop constraints and patterns
+  loop run [--task <taskId>]
+              Alias for loop report (does not execute commands)
   task new [title]
               Create an implementation-ready task file and update task/task.md
   task checklist <taskId> [--deep]
@@ -54,12 +57,14 @@ Commands:
               Print an AI-ready implementation prompt for one task
               Options: --compact --full-detail --full-workset
   ui          Start the local repo-context-kit web console
+  budget show Print the current effective budget mode (env-based)
 
 Task-driven workflow:
   context brief -> context next-task -> context workset <taskId>
   task prompt <taskId> -> task checklist <taskId> -> task pr <taskId>
   gate confirm task <taskId> -> gate confirm tests <taskId> -> gate run-test <taskId> --token <token>
   loop report
+  budget show
 
 Init options:
   --dry-run   Show what init would create or skip without writing files
@@ -133,6 +138,12 @@ export async function main(args = process.argv.slice(2)) {
         return;
     }
 
+    if (command === "budget") {
+        const commandIndex = args.indexOf(command);
+        await runBudget(args.slice(commandIndex + 1));
+        return;
+    }
+
     if (command === "gate") {
         const commandIndex = args.indexOf(command);
         await runGate(args.slice(commandIndex + 1));
@@ -162,6 +173,7 @@ export async function main(args = process.argv.slice(2)) {
     console.log("  repo-context-kit gate confirm tests <taskId>");
     console.log("  repo-context-kit gate run-test <taskId> --token <token>");
     console.log("  repo-context-kit loop report [--task <taskId>]");
+    console.log("  repo-context-kit budget show");
     console.log("  repo-context-kit task new [title]");
     console.log("  repo-context-kit task checklist <taskId> [--deep]");
     console.log("  repo-context-kit task pr <taskId> [--deep]");

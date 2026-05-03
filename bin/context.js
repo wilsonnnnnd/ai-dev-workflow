@@ -1146,6 +1146,14 @@ export async function runContext(args = []) {
     } else if (subcommand === "workset") {
         const worksetIndex = args.indexOf("workset");
         const taskId = args.slice(worksetIndex + 1).find((arg) => !arg.startsWith("--"));
+        if (!taskId) {
+            process.exitCode = 1;
+        } else {
+            const registry = parseTaskRegistry();
+            if (!registry.exists || !taskById(registry, taskId)) {
+                process.exitCode = 1;
+            }
+        }
         output = buildWorkset(taskId, {
             deep,
             digest: digestFlag || (!deep && !full),

@@ -93,6 +93,7 @@ npx repo-context-kit task prompt T-001 --compact
 npx repo-context-kit gate confirm task T-001 --json
 npx repo-context-kit gate confirm tests T-001
 npx repo-context-kit gate run-test T-001 --token <token>
+npx repo-context-kit loop report --task T-001
 ```
 
 The gate is designed to block command execution until explicit confirmation is recorded.
@@ -133,6 +134,9 @@ Lowest-token defaults:
 - `npx repo-context-kit task new "Title"` - create a new numbered task file and append to `task/task.md`
 - `npx repo-context-kit context brief|next-task|workset` - bounded, token-efficient context outputs (workset defaults to digest; use `--full` to disable digest)
 - `npx repo-context-kit task prompt|checklist|pr` - bounded, task-aware outputs built on the same workset
+- `npx repo-context-kit gate status|confirm|run-test` - confirmation gate for running task test commands safely
+- `npx repo-context-kit loop report|run` - summarize recent test outcomes and constraints from `.aidw/context-loop.jsonl`
+- `npx repo-context-kit budget show` - print the current effective budget mode (env-based)
 - `npx repo-context-kit ui` - local web console (localhost-only; whitelisted actions; read-only files)
 
 ## Unified AI Tool Entry

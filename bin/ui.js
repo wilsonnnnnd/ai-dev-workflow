@@ -44,6 +44,19 @@ function toWebPath(filePath) {
     return filePath.replaceAll(path.sep, "/");
 }
 
+function ensureUiAssets() {
+    if (!fs.existsSync(siteDir)) {
+        throw new Error(`UI assets are missing: ${path.relative(repoRoot, siteDir).replaceAll("\\", "/")}`);
+    }
+    const indexPath = path.resolve(siteDir, "index.html");
+    if (!fs.existsSync(indexPath)) {
+        throw new Error(`UI assets are missing: ${path.relative(repoRoot, indexPath).replaceAll("\\", "/")}`);
+    }
+    if (!fs.existsSync(TASK_EXAMPLE_FILE)) {
+        throw new Error(`UI assets are missing: ${path.relative(repoRoot, TASK_EXAMPLE_FILE).replaceAll("\\", "/")}`);
+    }
+}
+
 function sendJson(res, statusCode, body) {
     res.writeHead(statusCode, {
         "content-type": "application/json; charset=utf-8",
@@ -522,6 +535,7 @@ function openBrowser(url) {
 }
 
 export function startUiServer(options = {}) {
+    ensureUiAssets();
     const port = Number.parseInt(options.port ?? DEFAULT_PORT, 10);
     const server = createUiServer();
 

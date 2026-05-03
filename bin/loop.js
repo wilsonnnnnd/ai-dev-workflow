@@ -17,22 +17,8 @@ function formatCommandStats(entries = []) {
         .join("\n");
 }
 
-export async function runLoop(args = []) {
-    const subcommand = args.find((arg) => !arg.startsWith("--")) ?? "report";
-    const taskFlagIndex = args.indexOf("--task");
-    const taskId = taskFlagIndex !== -1 ? args[taskFlagIndex + 1] : null;
-
-    if (subcommand !== "report") {
-        console.error("Unknown loop command.");
-        console.log("Usage:");
-        console.log("  repo-context-kit loop report [--task <taskId>]");
-        process.exitCode = 1;
-        return { output: null };
-    }
-
-    const result = evaluateContextLoop({ taskId });
-
-    const output = [
+function buildLoopReportOutput(result) {
+    return [
         "# Context Loop Report",
         "",
         "## Constraints",
@@ -70,8 +56,37 @@ export async function runLoop(args = []) {
         "",
         formatList(result.mutations.acceptanceCriteriaItems),
     ].join("\n");
+}
+
+export async function runLoop(args = []) {
+    const subcommand = args.find((arg) => !arg.startsWith("--")) ?? "report";
+    const taskFlagIndex = args.indexOf("--task");
+    const taskId = taskFlagIndex !== -1 ? args[taskFlagIndex + 1] : null;
+
+    if (subcommand !== "report" && subcommand !== "run") {
+        console.error("Unknown loop command.");
+        console.log("Usage:");
+        console.log("  repo-context-kit loop report [--task <taskId>]");
+        console.log("  repo-context-kit loop run [--task <taskId>]");
+        process.exitCode = 1;
+        return { output: null };
+    }
+
+    const result = evaluateContextLoop({ taskId });
+
+    const report = buildLoopReportOutput(result);
+    const output = subcommand === "run"
+        ? [
+              "# Context Loop Run",
+              "",
+              "- status: noop",
+              "- note: This command does not execute tests, tasks, or any shell commands.",
+              '- next: Use "repo-context-kit loop report" to inspect constraints, and "repo-context-kit gate run-test" to run tests through the gate.',
+              "",
+              report,
+          ].join("\n")
+        : report;
 
     console.log(output.trimEnd());
     return { output };
 }
-

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -765,6 +766,29 @@ old generated content
         assert.match(text, /ui\s+Start the local repo-context-kit web console/);
         assert.match(text, /--budget <mode>/);
         assert.match(text, /REPO_CONTEXT_KIT_BUDGET/);
+    });
+
+    await t.test("budget show prints effective mode and does not crash", async () => {
+        process.exitCode = 0;
+        const { output } = await withCapturedConsole(() => runCliMain(["budget", "show"]));
+        const text = output.join("\n");
+
+        assert.equal(process.exitCode ?? 0, 0);
+        assert.match(text, /# Budget Policy/);
+        assert.match(text, /- resolved: (off|auto|full)/);
+        process.exitCode = 0;
+    });
+
+    await t.test("loop run is a safe alias and does not execute commands", async () => {
+        process.exitCode = 0;
+        const { output } = await withCapturedConsole(() => runCliMain(["loop", "run"]));
+        const text = output.join("\n");
+
+        assert.equal(process.exitCode ?? 0, 0);
+        assert.match(text, /# Context Loop Run/);
+        assert.match(text, /status: noop/);
+        assert.match(text, /# Context Loop Report/);
+        process.exitCode = 0;
     });
 
     await t.test("gate blocks confirming tests before task", async () => {
@@ -1832,6 +1856,30 @@ Add context command behavior in bin/cli.js and bin/context.js.
         });
     });
 
+    await t.test("context workset invalid task exits 1", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Only Task | todo | medium | - | - | [T-001](./T-001-only.md) |
+`,
+            );
+            writeFile("task/T-001-only.md", "# T-001 Only Task\n");
+
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() => runContext(["workset", "T-999"]));
+            assert.equal(process.exitCode, 1);
+            assert.match(output.join("\n"), /Task not found/i);
+            process.exitCode = 0;
+        });
+    });
+
     await t.test("context warns for missing index files and missing task registry", async () => {
         await withTempProject(async () => {
             writeFile("task/T-001-orphan.md", "# T-001 Orphan\n");
@@ -2207,6 +2255,31 @@ Add context command behavior in bin/cli.js and bin/context.js.
 
             assert.match(text, /task not found: T-999/);
             assert.match(text, /Check task\/task\.md for available task IDs/);
+        });
+    });
+
+    await t.test("task prompt invalid task exits 1", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Existing Task | todo | medium | - | - | [T-001](./T-001-existing.md) |
+`,
+            );
+            writeFile("task/T-001-existing.md", "# T-001 Existing Task\n");
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+
+            process.exitCode = 0;
+            await withCapturedConsole(() => runTask(["prompt", "T-999"]));
+            assert.equal(process.exitCode, 1);
+            process.exitCode = 0;
         });
     });
 
@@ -2790,5 +2863,18 @@ Test project.
             assert.match(combinedOutput, /\.aidw\//);
             assert.doesNotMatch(combinedOutput, /ai\//);
         });
+    });
+
+    await t.test("npm package includes site assets", async () => {
+        const result = spawnSync("npm", ["pack", "--dry-run"], {
+            cwd: originalCwd,
+            encoding: "utf-8",
+            shell: process.platform === "win32",
+        });
+
+        assert.equal(result.status, 0);
+        const text = `${result.stdout}\n${result.stderr}`;
+        assert.match(text, /site[\\/]+index\.html/);
+        assert.match(text, /site[\\/]+task-example\.md/);
     });
 });
