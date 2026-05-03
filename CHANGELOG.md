@@ -1,5 +1,11 @@
 # repo-context-kit
 
+## 1.3.0
+
+### Minor Changes
+
+- b87c063: Add a semi-auto executor (`execute` CLI) and deterministic completed-task cleanup (`task cleanup` and `task pr --cleanup`).
+
 ## 1.2.0
 
 ### Minor Changes
