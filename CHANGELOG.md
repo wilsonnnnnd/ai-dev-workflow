@@ -1,5 +1,11 @@
 # repo-context-kit
 
+## 1.2.0
+
+### Minor Changes
+
+- Minor release (no functional changes).
+
 ## 1.1.1
 
 ### Patch Changes
