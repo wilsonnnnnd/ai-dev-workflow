@@ -10,6 +10,7 @@ import { runLoop } from "./loop.js";
 import { runScan } from "./scan.js";
 import { runTask } from "./task.js";
 import { runUi } from "./ui.js";
+import { runExecute } from "./execute.js";
 import {
     CONTEXT_PROJECT_MD_PATH,
     CONTEXT_SYSTEM_OVERVIEW_PATH,
@@ -57,9 +58,23 @@ Commands:
               Print a bounded test and verification checklist for one task
   task pr <taskId> [--deep]
               Print a bounded pull request description for one task
+  task cleanup <taskId>
+              Archive and delete one completed task and remove it from task/task.md
   task prompt <taskId> [--deep]
               Print an AI-ready implementation prompt for one task
               Options: --compact --full-detail --full-workset
+  execute status
+              Show semi-auto executor state
+  execute next
+              Load next todo task and create a scope confirmation pause
+  execute run <taskId>
+              Load a task and create a scope confirmation pause (does not edit files)
+  execute confirm <pauseId>
+              Confirm a pause and advance to the next executor phase
+  execute sync
+              Sync gate test results from the context loop into executor state
+  execute reset
+              Reset executor state
   ui          Start the local repo-context-kit web console
   budget show Print the current effective budget mode (env-based)
 
@@ -160,6 +175,12 @@ export async function main(args = process.argv.slice(2)) {
         return;
     }
 
+    if (command === "execute") {
+        const commandIndex = args.indexOf(command);
+        await runExecute(args.slice(commandIndex + 1));
+        return;
+    }
+
     if (command === "ui") {
         await runUi();
         return;
@@ -182,6 +203,12 @@ export async function main(args = process.argv.slice(2)) {
     console.log("  repo-context-kit task checklist <taskId> [--deep]");
     console.log("  repo-context-kit task pr <taskId> [--deep]");
     console.log("  repo-context-kit task prompt <taskId> [--deep]");
+    console.log("  repo-context-kit execute status");
+    console.log("  repo-context-kit execute next");
+    console.log("  repo-context-kit execute run <taskId>");
+    console.log("  repo-context-kit execute confirm <pauseId>");
+    console.log("  repo-context-kit execute sync");
+    console.log("  repo-context-kit execute reset");
     console.log("  repo-context-kit ui");
     process.exit(1);
 }

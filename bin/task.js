@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import path from "path";
 import { buildWorksetContext } from "./context.js";
 import {
     CONTEXT_PROJECT_MD_PATH,
     CONTEXT_SYSTEM_OVERVIEW_PATH,
+    CONTEXT_TASKS_PATH,
     TASK_REGISTRY_PATH,
 } from "../src/scan/constants.js";
 import { exists, listDirSafe, readText, writeText } from "../src/scan/fs-utils.js";
@@ -11,6 +13,7 @@ import { evaluateContextLoop } from "../src/loop/analyze.js";
 import { appendLoopEvent } from "../src/loop/store.js";
 import { resolveBudgetMode } from "../src/budget/policy.js";
 import { buildBudgetDecisionEvent, formatBudgetDecisionMarkdown } from "../src/budget/decision.js";
+import { buildTaskMap } from "../src/scan/indexers/project-index.js";
 import {
     appendTaskToRegistry,
     ensureTaskRegistry,
@@ -120,6 +123,21 @@ function toBulletList(items, fallback) {
     return cleaned.map((item) => `- ${item}`).join("\n");
 }
 
+const DEFAULT_HARD_BOUNDARIES = [
+    "Do not run commands (including tests) without explicit confirmation.",
+    "Do not modify files outside the current task Scope.",
+    "Do not edit generated `.aidw/index/*` files manually.",
+    "Do not commit, push, or create PRs unless explicitly requested.",
+    "Do not access, print, or log secrets or environment values.",
+];
+
+const DEFAULT_CONFIRMATION_POINTS = [
+    "Confirm scope and planned approach before making any file edits.",
+    "Confirm before applying changes that touch multiple files or shared modules.",
+    "Confirm before running tests (prefer the confirmation gate when available).",
+    "Confirm before committing, pushing, or opening a PR.",
+];
+
 function buildTaskTemplate(taskId, title, testCommand, seed = {}) {
     const requirements = toBulletList(seed.requirementItems, " ");
     const risk = toBulletList(seed.riskItems, " ");
@@ -144,6 +162,14 @@ Allowed to change:
 Do not change:
 
 - 
+
+## Hard Boundaries
+
+${formatList(DEFAULT_HARD_BOUNDARIES)}
+
+## Confirmation Points
+
+${formatList(DEFAULT_CONFIRMATION_POINTS)}
 
 ## Requirements
 
@@ -212,6 +238,15 @@ function extractSection(content, heading) {
     return match?.groups?.body?.trim() ?? "";
 }
 
+function getTaskGuardSection(taskDetail, heading, fallbackItems, warnings) {
+    const body = extractSection(taskDetail, heading);
+    if (body) {
+        return body;
+    }
+    warnings.push(`Task detail missing "${heading}" section; using defaults.`);
+    return formatList(fallbackItems);
+}
+
 function extractWorksetSection(workset, heading) {
     const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const regex = new RegExp(
@@ -262,6 +297,152 @@ function readTaskDetail(task, warnings) {
     }
 
     return readText(task.file);
+}
+
+function normalizeTaskId(taskId) {
+    return String(taskId ?? "").trim().toUpperCase();
+}
+
+function isCompletedStatus(status) {
+    const normalized = String(status ?? "").trim().toLowerCase();
+    return normalized === "done" || normalized === "completed";
+}
+
+function resolveTaskFileForCleanup(taskId) {
+    const id = normalizeTaskId(taskId);
+    const fileNames = listDirSafe(TASK_DIR);
+    const matches = fileNames.filter(
+        (fileName) => new RegExp(`^${id}-[^/\\\\]+\\.md$`, "i").test(String(fileName ?? "").trim()),
+    );
+    if (matches.length !== 1) {
+        return null;
+    }
+    return path.posix.join(TASK_DIR, matches[0]);
+}
+
+function extractFirstMeaningfulLine(markdown) {
+    const lines = String(markdown ?? "")
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !line.startsWith("#"))
+        .filter((line) => !line.startsWith("<!--"));
+    return lines[0] ?? "-";
+}
+
+function appendTaskHistoryEntry(entry) {
+    const archivePath = path.posix.join(TASK_DIR, "archive", "task-history.md");
+    const current = exists(archivePath) ? readText(archivePath).replace(/\r\n/g, "\n").trimEnd() : "";
+    const next = current ? `${current}\n\n${entry.trimEnd()}\n` : `${entry.trimEnd()}\n`;
+    writeText(archivePath, next);
+    return archivePath;
+}
+
+function removeTaskRowFromRegistry(taskId) {
+    const id = normalizeTaskId(taskId);
+    const content = readText(TASK_REGISTRY_PATH).replace(/\r\n/g, "\n");
+    const lines = content.split("\n");
+    let removed = 0;
+    const nextLines = lines.filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("|")) {
+            return true;
+        }
+        const cells = trimmed
+            .replace(/^\||\|$/g, "")
+            .split("|")
+            .map((cell) => cell.trim());
+        if (cells.length < 1) {
+            return true;
+        }
+        const first = String(cells[0] ?? "").trim();
+        if (!first || first.toLowerCase() === "id" || /^-+$/.test(first)) {
+            return true;
+        }
+        if (first.toUpperCase() !== id) {
+            return true;
+        }
+        removed += 1;
+        return false;
+    });
+
+    if (removed !== 1) {
+        return { ok: false, removed: 0 };
+    }
+
+    const next = `${nextLines.join("\n").trimEnd()}\n`;
+    writeText(TASK_REGISTRY_PATH, next);
+    return { ok: true, removed };
+}
+
+function regenerateTasksJson() {
+    const tasks = buildTaskMap();
+    writeText(CONTEXT_TASKS_PATH, `${JSON.stringify(tasks, null, 4)}\n`);
+    return CONTEXT_TASKS_PATH;
+}
+
+function runTaskCleanup(taskId) {
+    const registry = parseTaskRegistry();
+    const task = registry.exists ? findTaskById(registry, taskId) : null;
+
+    if (!registry.exists || !task || !isCompletedStatus(task.status)) {
+        console.error("Task is not completed. Cleanup aborted.");
+        process.exitCode = 1;
+        return { ok: false };
+    }
+
+    const resolvedTaskFile = resolveTaskFileForCleanup(task.id);
+    if (!resolvedTaskFile || !exists(resolvedTaskFile)) {
+        console.error("Task file not found. Cleanup aborted.");
+        process.exitCode = 1;
+        return { ok: false };
+    }
+
+    const taskDetail = readText(resolvedTaskFile);
+    const summary = extractFirstMeaningfulLine(taskDetail);
+    const completedAt = new Date().toISOString();
+    const archiveEntry = [
+        `## ${task.id} ${task.title}`,
+        `- Completed at: ${completedAt}`,
+        `- Owner: ${task.owner || "-"}`,
+        `- Summary: ${summary}`,
+    ].join("\n");
+    const archivedPath = appendTaskHistoryEntry(archiveEntry);
+
+    fs.unlinkSync(path.resolve(process.cwd(), resolvedTaskFile));
+
+    const registryUpdate = removeTaskRowFromRegistry(task.id);
+    if (!registryUpdate.ok) {
+        console.error("Task registry update failed. Cleanup aborted.");
+        process.exitCode = 1;
+        return { ok: false };
+    }
+
+    const tasksJsonPath = regenerateTasksJson();
+
+    const output = [
+        "✔ Task cleanup completed",
+        "",
+        "Removed:",
+        `* ${resolvedTaskFile}`,
+        "",
+        "Updated:",
+        `* ${TASK_REGISTRY_PATH}`,
+        `* ${tasksJsonPath}`,
+        "",
+        "Archived:",
+        `* ${archivedPath}`,
+        "",
+    ].join("\n");
+
+    console.log(output.trimEnd());
+    return {
+        ok: true,
+        removed: resolvedTaskFile,
+        updated: [TASK_REGISTRY_PATH, tasksJsonPath],
+        archived: archivedPath,
+    };
 }
 
 function renderTaskOutputManifestText({
@@ -518,6 +699,8 @@ function buildTaskPrDescription(taskId, options = {}) {
 
     const taskDetail = readTaskDetail(task, warnings);
     const goal = extractSection(taskDetail, "Goal") || "Address the selected task using the available registry metadata and workset context.";
+    const hardBoundaries = getTaskGuardSection(taskDetail, "Hard Boundaries", DEFAULT_HARD_BOUNDARIES, warnings);
+    const confirmationPoints = getTaskGuardSection(taskDetail, "Confirmation Points", DEFAULT_CONFIRMATION_POINTS, warnings);
     const scope = extractSection(taskDetail, "Scope");
     const acceptanceCriteria = extractSection(taskDetail, "Acceptance Criteria");
     const loopResult = budget === "auto" || budget === "full"
@@ -622,6 +805,28 @@ function buildTaskPrDescription(taskId, options = {}) {
             `- owner: ${task.owner || "-"}`,
             `- dependencies: ${task.dependencies || "-"}`,
             `- file: ${task.file || "-"}`,
+        ].join("\n"),
+        [
+            "## Hard Boundaries",
+            "",
+            hardBoundaries,
+        ].join("\n"),
+        [
+            "## Confirmation Points",
+            "",
+            confirmationPoints,
+        ].join("\n"),
+        [
+            "## Post-merge Cleanup",
+            "",
+            "- [ ] Create an archive record for this workflow run (one file per run): `archive/Task_at_date.md`.",
+            "- [ ] If this repo uses task files only for internal planning, remove completed `task/T-*.md` files after merge.",
+            "- [ ] Ensure `task/task.md` does not reference missing task files (remove rows or keep an empty registry).",
+            "- [ ] Refresh generated context after cleanup:",
+            "",
+            "```bash",
+            "npx repo-context-kit scan --auto",
+            "```",
         ].join("\n"),
         exceptionBudget ? renderLoopSignals(task.id, task.title) : null,
         [
@@ -942,6 +1147,8 @@ function buildTaskPrompt(taskId, options = {}) {
     }
 
     const taskDetail = readTaskDetail(task, warnings);
+    const hardBoundaries = getTaskGuardSection(taskDetail, "Hard Boundaries", DEFAULT_HARD_BOUNDARIES, warnings);
+    const confirmationPoints = getTaskGuardSection(taskDetail, "Confirmation Points", DEFAULT_CONFIRMATION_POINTS, warnings);
     const loopResult = budget === "auto" || budget === "full"
         ? evaluateContextLoop({ taskId: task.id, requestedTitle: task.title })
         : null;
@@ -1081,6 +1288,16 @@ function buildTaskPrompt(taskId, options = {}) {
                   "",
                   taskDetailForPrompt || "_Task detail file is unavailable. Use registry metadata and ask for more specific context if needed._",
               ].join("\n"),
+        [
+            "## Hard Boundaries",
+            "",
+            hardBoundaries,
+        ].join("\n"),
+        [
+            "## Confirmation Points",
+            "",
+            confirmationPoints,
+        ].join("\n"),
         compact
             ? null
             : [
@@ -1139,8 +1356,10 @@ export async function runTask(args = []) {
 
     if (subcommand === "pr") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
+        const cleanup = args.includes("--cleanup");
         const registry = parseTaskRegistry();
-        if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
+        const prOk = Boolean(taskId && registry.exists && findTaskById(registry, taskId));
+        if (!prOk) {
             process.exitCode = 1;
         }
         const output = buildTaskPrDescription(taskId, {
@@ -1157,9 +1376,23 @@ export async function runTask(args = []) {
 
         console.log(output.trimEnd());
 
+        if (cleanup && prOk) {
+            runTaskCleanup(taskId);
+        }
+
         return {
             output,
         };
+    }
+
+    if (subcommand === "cleanup") {
+        const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
+        if (!taskId) {
+            console.error("Task is not completed. Cleanup aborted.");
+            process.exitCode = 1;
+            return { ok: false };
+        }
+        return runTaskCleanup(taskId);
     }
 
     if (subcommand === "checklist") {
@@ -1316,7 +1549,8 @@ export async function runTask(args = []) {
         console.log("  repo-context-kit task generate");
         console.log("  repo-context-kit task run");
         console.log("  repo-context-kit task checklist <taskId> [--deep]");
-        console.log("  repo-context-kit task pr <taskId> [--deep]");
+        console.log("  repo-context-kit task pr <taskId> [--deep] [--cleanup]");
+        console.log("  repo-context-kit task cleanup <taskId>");
         console.log("  repo-context-kit task prompt <taskId> [--deep] [--compact] [--full-detail] [--full-workset]");
         process.exitCode = 1;
         return {

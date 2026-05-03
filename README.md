@@ -56,12 +56,37 @@ Commands that exist for power users and internal control, but are not part of th
 - Task utilities:
   - `repo-context-kit task new "Title"`
   - `repo-context-kit task prompt|checklist|pr <taskId>`
+- Semi-auto executor (safe orchestration only):
+  - `repo-context-kit execute status|next|run|confirm|sync|reset`
 - Internal controls:
   - `repo-context-kit gate status|confirm|run-test`
   - `repo-context-kit loop report|run`
   - `repo-context-kit budget show`
 
 For a scenario-based runbook (commands, workflows, and troubleshooting), see [OPERATIONS.md](./OPERATIONS.md).
+
+## Semi-Auto Executor Flow
+
+The `execute` command provides a small, resumable orchestration state machine:
+
+Task → Context → Pause → Confirm → Continue
+
+It does not modify code, run tests, commit, or open PRs. It only reads tasks, generates bounded context summaries, and writes executor/loop state under `.aidw/`.
+
+Example flow:
+
+```bash
+repo-context-kit execute next
+repo-context-kit execute confirm <pauseId>
+repo-context-kit execute confirm <pauseId>
+repo-context-kit execute confirm <pauseId>
+
+repo-context-kit gate confirm task <taskId> --json
+repo-context-kit gate confirm tests <taskId>
+repo-context-kit gate run-test <taskId> --token <token>
+
+repo-context-kit execute sync
+```
 
 ## License
 

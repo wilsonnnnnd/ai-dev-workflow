@@ -20,7 +20,7 @@ The repository is packaged for npm distribution.
 
 ## Package Metadata
 - name: repo-context-kit
-- version: 1.1.1
+- version: 1.2.0
 - module type: module
 - license: MIT
 - bin:
@@ -52,6 +52,7 @@ The repository is packaged for npm distribution.
 - bin/budget.js -> CLI command entry or command helper
 - bin/cli.js -> CLI command entry or command helper
 - bin/context.js -> CLI command entry or command helper
+- bin/execute.js -> CLI command entry or command helper
 - bin/gate.js -> CLI command entry or command helper
 - bin/init.js -> CLI command entry or command helper
 - bin/loop.js -> CLI command entry or command helper
