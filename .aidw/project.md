@@ -52,6 +52,7 @@ The repository is packaged for npm distribution.
 - bin/budget.js -> CLI command entry or command helper
 - bin/cli.js -> CLI command entry or command helper
 - bin/context.js -> CLI command entry or command helper
+- bin/execute.js -> CLI command entry or command helper
 - bin/gate.js -> CLI command entry or command helper
 - bin/init.js -> CLI command entry or command helper
 - bin/loop.js -> CLI command entry or command helper

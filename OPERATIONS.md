@@ -31,6 +31,25 @@ git commit -m "Add AI project context"
 npx repo-context-kit context next-task
 ```
 
+### Optional: Semi-Auto Executor (resumable orchestration)
+
+Use when: you want a minimal CLI state machine that tracks pauses and confirmations across steps.
+
+```bash
+npx repo-context-kit execute next
+npx repo-context-kit execute status
+npx repo-context-kit execute confirm <pauseId>
+```
+
+When the executor reaches `testing`, run tests via the gate and then sync:
+
+```bash
+npx repo-context-kit gate confirm task <taskId> --json
+npx repo-context-kit gate confirm tests <taskId>
+npx repo-context-kit gate run-test <taskId> --token <token>
+npx repo-context-kit execute sync
+```
+
 ### 2) Get bounded implementation context
 
 ```bash
@@ -182,6 +201,38 @@ For test execution prompts:
 - `Run tests`
 - `Skip tests (reason: no_tests_available)`
 - `Skip tests (reason: too_expensive_now)`
+
+## Post-PR Cleanup Rule (task artifacts)
+
+Use when: a PR has been merged and the `task/` artifacts were only used for internal planning.
+
+- Goal: keep `task/` clean so it does not accumulate stale `T-*.md` files over time.
+- Timing: apply this only after merge (post-PR), never during active development.
+
+Checklist:
+
+- Confirm the PR is merged into the target branch.
+- Create an archive record (one file per workflow run) so the task work is reproducible later:
+
+```bash
+mkdir -p archive
+${EDITOR:-notepad} archive/Task_at_date.md
+```
+
+Suggested minimum fields:
+
+- Date
+- Task IDs (or "none" if using the workflow without registry)
+- PR link
+- Test command(s) + results
+- Notes / follow-ups
+- Remove completed task detail files under `task/` that are no longer needed.
+- Ensure `task/task.md` does not reference missing task files (either remove the rows or keep an empty registry).
+- Refresh generated context so `.aidw/context/tasks.json` and `.aidw/system-overview.md` are consistent:
+
+```bash
+npx repo-context-kit scan --auto
+```
 
 ## Troubleshooting
 

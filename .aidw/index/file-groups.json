@@ -1,7 +1,7 @@
 [
     {
         "path": "bin",
-        "fileCount": 9,
+        "fileCount": 10,
         "summary": "CLI entrypoints and command wrappers.",
         "keyFiles": [
             "bin/budget.js",
@@ -46,6 +46,15 @@
         "keyFiles": [
             "src/budget/decision.js",
             "src/budget/policy.js"
+        ]
+    },
+    {
+        "path": "src/executor",
+        "fileCount": 2,
+        "summary": "Source modules for application behavior.",
+        "keyFiles": [
+            "src/executor/runner.js",
+            "src/executor/state.js"
         ]
     },
     {

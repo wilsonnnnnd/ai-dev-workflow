@@ -657,6 +657,8 @@ old generated content
             assert.match(taskContent, /## Acceptance Criteria/);
             assert.match(taskContent, /## Test Command/);
             assert.match(taskContent, /npm test/);
+            assert.match(taskContent, /## Hard Boundaries/);
+            assert.match(taskContent, /## Confirmation Points/);
             assert.match(taskContent, /## Definition of Done/);
             assert.match(
                 fs.readFileSync("task/task.md", "utf-8"),
@@ -762,13 +764,367 @@ old generated content
         assert.match(text, /task run/);
         assert.match(text, /task checklist <taskId> \[--deep\]/);
         assert.match(text, /task pr <taskId> \[--deep\]/);
+        assert.match(text, /task cleanup <taskId>/);
         assert.match(text, /task prompt <taskId> \[--deep\]/);
+        assert.match(text, /execute status/);
+        assert.match(text, /execute next/);
+        assert.match(text, /execute run <taskId>/);
+        assert.match(text, /execute confirm <pauseId>/);
+        assert.match(text, /execute sync/);
+        assert.match(text, /execute reset/);
         assert.match(text, /Task-driven workflow:/);
         assert.match(text, /context brief -> context next-task -> context workset <taskId>/);
         assert.match(text, /task prompt <taskId> -> task checklist <taskId> -> task pr <taskId>/);
         assert.match(text, /ui\s+Start the local repo-context-kit web console/);
         assert.match(text, /--budget <mode>/);
         assert.match(text, /REPO_CONTEXT_KIT_BUDGET/);
+    });
+
+    await t.test("task cleanup succeeds for completed task and removes task artifacts deterministically", async () => {
+        await withTempProject(async () => {
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Done Task | done | medium | Wilson | - | [T-001](./T-001-done-task.md) |
+`,
+            );
+            writeFile(
+                "task/T-001-done-task.md",
+                `# T-001 Done Task
+
+This task is complete.
+`,
+            );
+
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() =>
+                runCliMain(["task", "cleanup", "T-001"]),
+            );
+            assert.equal(process.exitCode ?? 0, 0);
+            const text = output.join("\n");
+            assert.match(text, /✔ Task cleanup completed/);
+            assert.match(text, /Removed:\s*\n\* task\/T-001-done-task\.md/);
+            assert.match(text, /Archived:\s*\n\* task\/archive\/task-history\.md/);
+            assert.equal(fs.existsSync("task/T-001-done-task.md"), false);
+
+            const registry = fs.readFileSync("task/task.md", "utf-8");
+            assert.doesNotMatch(registry, /\| T-001 \|/);
+
+            const history = fs.readFileSync("task/archive/task-history.md", "utf-8");
+            assert.match(history, /## T-001 Done Task/);
+            assert.match(history, /- Owner: Wilson/);
+            assert.match(history, /- Summary: This task is complete\./);
+
+            const tasksJson = JSON.parse(fs.readFileSync(".aidw/context/tasks.json", "utf-8"));
+            assert.ok(Array.isArray(tasksJson));
+            assert.equal(tasksJson.some((entry) => entry?.id === "T-001"), false);
+
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("task cleanup is blocked when task is not done", async () => {
+        await withTempProject(async () => {
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Todo Task | todo | medium | - | - | [T-001](./T-001-todo-task.md) |
+`,
+            );
+            writeFile("task/T-001-todo-task.md", "# T-001 Todo Task\n\nNot done.\n");
+
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() =>
+                runCliMain(["task", "cleanup", "T-001"]),
+            );
+            assert.equal(process.exitCode, 1);
+            assert.equal(output.join("\n"), "Task is not completed. Cleanup aborted.");
+            assert.equal(fs.existsSync("task/T-001-todo-task.md"), true);
+            assert.equal(fs.existsSync("task/archive/task-history.md"), false);
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("task cleanup fails when task is missing from registry", async () => {
+        await withTempProject(async () => {
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-002 | Other Task | done | medium | - | - | [T-002](./T-002-other.md) |
+`,
+            );
+            writeFile("task/T-002-other.md", "# T-002 Other\n");
+
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() =>
+                runCliMain(["task", "cleanup", "T-001"]),
+            );
+            assert.equal(process.exitCode, 1);
+            assert.equal(output.join("\n"), "Task is not completed. Cleanup aborted.");
+            assert.equal(fs.existsSync("task/archive/task-history.md"), false);
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("task cleanup fails when task file is missing", async () => {
+        await withTempProject(async () => {
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Done Task | done | medium | - | - | [T-001](./T-001-done-task.md) |
+`,
+            );
+
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() =>
+                runCliMain(["task", "cleanup", "T-001"]),
+            );
+            assert.equal(process.exitCode, 1);
+            assert.equal(output.join("\n"), "Task file not found. Cleanup aborted.");
+            assert.equal(fs.existsSync("task/archive/task-history.md"), false);
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("task pr --cleanup runs cleanup after PR generation succeeds", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Done Task | done | medium | - | - | [T-001](./T-001-done-task.md) |
+`,
+            );
+            writeFile(
+                "task/T-001-done-task.md",
+                `# T-001 Done Task
+
+Cleanup after PR.
+`,
+            );
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() =>
+                runCliMain(["task", "pr", "T-001", "--cleanup"]),
+            );
+            assert.equal(process.exitCode ?? 0, 0);
+            const text = output.join("\n");
+            assert.match(text, /# Pull Request Description/);
+            assert.match(text, /✔ Task cleanup completed/);
+            assert.equal(fs.existsSync("task/T-001-done-task.md"), false);
+            assert.equal(fs.existsSync("task/archive/task-history.md"), true);
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("task pr --cleanup does not cleanup when PR generation fails", async () => {
+        await withTempProject(async () => {
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() =>
+                runCliMain(["task", "pr", "T-999", "--cleanup"]),
+            );
+            assert.equal(process.exitCode, 1);
+            const text = output.join("\n");
+            assert.match(text, /# Pull Request Description/);
+            assert.doesNotMatch(text, /Task cleanup completed/);
+            assert.equal(fs.existsSync("task/archive/task-history.md"), false);
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("execute run creates scope pause and writes loop events", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            await withMutedConsole(() => runTask(["new", "Executor task"]));
+
+            process.exitCode = 0;
+            await withCapturedConsole(() => runCliMain(["execute", "run", "T-001"]));
+            assert.equal(process.exitCode ?? 0, 0);
+
+            const state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            assert.equal(state.activeTaskId, "T-001");
+            assert.equal(state.phase, "waiting_for_scope_confirmation");
+            assert.equal(state.pauseType, "confirm_scope");
+            assert.match(state.pauseId, /^P-[a-f0-9]{16}$/i);
+
+            const loopText = fs.readFileSync(".aidw/context-loop.jsonl", "utf-8");
+            assert.match(loopText, /"type":"executor_task_loaded"/);
+            assert.match(loopText, /"type":"executor_pause_created"/);
+
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("execute confirm advances through phases into testing", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            await withMutedConsole(() => runTask(["new", "Executor confirm flow"]));
+
+            process.exitCode = 0;
+            await withCapturedConsole(() => runCliMain(["execute", "run", "T-001"]));
+            let state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            const pauseScope = state.pauseId;
+
+            await withCapturedConsole(() => runCliMain(["execute", "confirm", pauseScope]));
+            state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            assert.equal(state.phase, "waiting_for_apply_confirmation");
+            assert.equal(state.pauseType, "confirm_apply");
+            const pauseApply = state.pauseId;
+
+            await withCapturedConsole(() => runCliMain(["execute", "confirm", pauseApply]));
+            state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            assert.equal(state.phase, "waiting_for_test_confirmation");
+            assert.equal(state.pauseType, "confirm_test");
+            const pauseTest = state.pauseId;
+
+            await withCapturedConsole(() => runCliMain(["execute", "confirm", pauseTest]));
+            state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            assert.equal(state.phase, "testing");
+            assert.equal(state.pauseId, null);
+            assert.equal(state.pauseType, null);
+
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("execute confirm rejects invalid pauseId", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            await withMutedConsole(() => runTask(["new", "Executor invalid pause"]));
+
+            await withCapturedConsole(() => runCliMain(["execute", "run", "T-001"]));
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() =>
+                runCliMain(["execute", "confirm", "P-not-a-real-pause"]),
+            );
+            assert.equal(process.exitCode, 1);
+            assert.match(output.join("\n"), /Invalid pauseId/i);
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("execute sync updates executor state from latest test event", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            await withMutedConsole(() => runTask(["new", "Executor sync flow"]));
+
+            await withCapturedConsole(() => runCliMain(["execute", "run", "T-001"]));
+            let state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            await withCapturedConsole(() => runCliMain(["execute", "confirm", state.pauseId]));
+            state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            await withCapturedConsole(() => runCliMain(["execute", "confirm", state.pauseId]));
+            state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            await withCapturedConsole(() => runCliMain(["execute", "confirm", state.pauseId]));
+
+            process.exitCode = 0;
+            const pending = await withCapturedConsole(() => runCliMain(["execute", "sync"]));
+            assert.equal(process.exitCode ?? 0, 0);
+            assert.match(pending.output.join("\n"), /no test result found/i);
+
+            fs.appendFileSync(
+                ".aidw/context-loop.jsonl",
+                `${JSON.stringify({
+                    at: "2026-01-01T00:00:00.000Z",
+                    type: "test",
+                    taskId: "T-001",
+                    ok: true,
+                    exitCode: 0,
+                    command: "npm test",
+                })}\n`,
+                "utf-8",
+            );
+
+            const completed = await withCapturedConsole(() => runCliMain(["execute", "sync"]));
+            assert.equal(process.exitCode ?? 0, 0);
+            assert.match(completed.output.join("\n"), /marked task as completed/i);
+
+            const finalState = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            assert.equal(finalState.phase, "completed");
+            assert.ok(Array.isArray(finalState.completedTasks));
+            assert.ok(finalState.completedTasks.includes("T-001"));
+
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("execute next selects the first todo task in the registry", async () => {
+        await withTempProject(async () => {
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Done Task | done | medium | - | - | [T-001](./T-001-done.md) |
+| T-002 | Todo Task | todo | medium | - | - | [T-002](./T-002-todo.md) |
+`,
+            );
+            writeFile("task/T-001-done.md", "# T-001 Done Task\n");
+            writeFile("task/T-002-todo.md", "# T-002 Todo Task\n");
+
+            process.exitCode = 0;
+            await withCapturedConsole(() => runCliMain(["execute", "next"]));
+            assert.equal(process.exitCode ?? 0, 0);
+
+            const state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            assert.equal(state.activeTaskId, "T-002");
+            assert.equal(state.phase, "waiting_for_scope_confirmation");
+
+            process.exitCode = 0;
+        });
+    });
+
+    await t.test("execute reset clears executor state", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            await withMutedConsole(() => runTask(["new", "Executor reset flow"]));
+
+            await withCapturedConsole(() => runCliMain(["execute", "run", "T-001"]));
+            process.exitCode = 0;
+            await withCapturedConsole(() => runCliMain(["execute", "reset"]));
+            assert.equal(process.exitCode ?? 0, 0);
+
+            const state = JSON.parse(fs.readFileSync(".aidw/executor-state.json", "utf-8"));
+            assert.equal(state.phase, "idle");
+            assert.equal(state.activeTaskId, null);
+
+            const loopText = fs.readFileSync(".aidw/context-loop.jsonl", "utf-8");
+            assert.match(loopText, /"type":"executor_reset"/);
+
+            process.exitCode = 0;
+        });
     });
 
     await t.test("task generate prints scaffold output", async () => {
@@ -2053,7 +2409,50 @@ Generate AI-ready prompts.
             assert.match(text, /- priority: high/);
             assert.match(text, /- owner: dev/);
             assert.match(text, /Generate AI-ready prompts/);
+            assert.match(text, /## Hard Boundaries/);
+            assert.match(text, /## Confirmation Points/);
             assert.match(text, /## Required Final Response Format/);
+        });
+    });
+
+    await t.test("task prompt includes default hard boundaries and warnings when missing in task detail", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Missing boundaries | todo | medium | - | - | [T-001](./T-001-missing-boundaries.md) |
+`,
+            );
+            writeFile(
+                "task/T-001-missing-boundaries.md",
+                `# T-001 Missing boundaries
+
+## Goal
+
+Ensure prompt still includes guardrails.
+`,
+            );
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+
+            const { output } = await withCapturedConsole(() =>
+                runTask(["prompt", "T-001"]),
+            );
+            const text = output.join("\n");
+
+            assert.match(text, /## Hard Boundaries/);
+            assert.match(text, /Do not run commands/);
+            assert.match(text, /## Confirmation Points/);
+            assert.match(text, /Confirm scope and planned approach/);
+            assert.match(text, /## Warnings/);
+            assert.match(text, /Task detail missing "Hard Boundaries" section; using defaults\./);
+            assert.match(text, /Task detail missing "Confirmation Points" section; using defaults\./);
         });
     });
 
@@ -2660,6 +3059,51 @@ Generate bounded PR description text.
             assert.match(text, /- priority: high/);
             assert.match(text, /- owner: dev/);
             assert.match(text, /Generate bounded PR description text/);
+            assert.match(text, /## Hard Boundaries/);
+            assert.match(text, /## Confirmation Points/);
+            assert.match(text, /## Post-merge Cleanup/);
+            assert.match(text, /archive\/Task_at_date\.md/);
+        });
+    });
+
+    await t.test("task pr includes default hard boundaries and warnings when missing in task detail", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | PR missing boundaries | todo | medium | - | - | [T-001](./T-001-pr-missing-boundaries.md) |
+`,
+            );
+            writeFile(
+                "task/T-001-pr-missing-boundaries.md",
+                `# T-001 PR missing boundaries
+
+## Goal
+
+Ensure PR description includes guardrails.
+`,
+            );
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+
+            const { output } = await withCapturedConsole(() =>
+                runTask(["pr", "T-001"]),
+            );
+            const text = output.join("\n");
+
+            assert.match(text, /## Hard Boundaries/);
+            assert.match(text, /Do not run commands/);
+            assert.match(text, /## Confirmation Points/);
+            assert.match(text, /Confirm scope and planned approach/);
+            assert.match(text, /## Warnings/);
+            assert.match(text, /Task detail missing "Hard Boundaries" section; using defaults\./);
+            assert.match(text, /Task detail missing "Confirmation Points" section; using defaults\./);
         });
     });
 
