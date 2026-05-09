@@ -23,7 +23,11 @@ import { explainBootstrapPlan } from "../bootstrap/explain.js";
 import { diffBootstrapPlan } from "../bootstrap/diff.js";
 import { getRuntimeModeConfig, resolveRuntimeMode } from "../runtime/rdl/modes.js";
 import { readShcV1Status } from "../runtime/rdl/shc.js";
+import { readPdglV1Status } from "../runtime/rdl/pdgl.js";
 import { validateGate } from "../gate/state.js";
+import { hygieneScan } from "../hygiene/scan.js";
+import { hygienePlan } from "../hygiene/plan.js";
+import { applyHygienePlan } from "../hygiene/apply.js";
 
 function asTextResult(text) {
     return {
@@ -318,6 +322,25 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
             async () => {
                 const result = await spawnCli({ rootDir, args: ["scan", "--plan"] });
                 return asTextResult(result.stdout || result.stderr);
+            },
+        ),
+        tool(
+            "rck.hygiene.scan",
+            "Detect task/runtime hygiene candidates (read-only). Only considers runtime-managed artifacts and task hygiene.",
+            { type: "object", additionalProperties: false, properties: {} },
+            async () => {
+                const result = withRepoRoot(rootDir, () => hygieneScan({ repoRoot: rootDir }));
+                return asTextResult(serializeJson(result));
+            },
+        ),
+        tool(
+            "rck.hygiene.plan",
+            "Generate a bounded hygiene plan (read-only). Plan is not executable ops and does not delete files.",
+            { type: "object", additionalProperties: false, properties: {} },
+            async () => {
+                const scan = withRepoRoot(rootDir, () => hygieneScan({ repoRoot: rootDir }));
+                const planned = withRepoRoot(rootDir, () => hygienePlan({ repoRoot: rootDir, scanResult: scan }));
+                return asTextResult(serializeJson(planned));
             },
         ),
         tool(
@@ -879,6 +902,7 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
                 const runtimeMode = resolveRuntimeMode({ repoRoot: rootDir });
                 const modeConfig = getRuntimeModeConfig(runtimeMode);
                 const shc = readShcV1Status({ repoRoot: rootDir });
+                const design = readPdglV1Status({ repoRoot: rootDir });
                 const freshness = withRepoRoot(rootDir, () => computeContextFreshness({ worksetFiles: virtual.relatedFiles }));
                 const contract = buildRuntimeContract({
                     repoRoot: rootDir,
@@ -893,8 +917,8 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
                     prompt: virtual.prompt,
                     lessons,
                     loop,
-                    runtime: { writeEnabled: Boolean(enableWrite), mode: runtimeMode, modeConfig, shc, freshness },
-                    rdl: { mode: runtimeMode, shc, freshness },
+                    runtime: { writeEnabled: Boolean(enableWrite), mode: runtimeMode, modeConfig, shc, design, freshness },
+                    rdl: { mode: runtimeMode, shc, design, freshness },
                     nextActions: scan.status === "fresh" ? [] : ["repo-context-kit scan"],
                     executionState: { sessionId: null, pauseId: null, phase: "planning", status: "planned" },
                 });
@@ -960,6 +984,7 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
                         const runtimeMode = resolveRuntimeMode({ repoRoot: rootDir });
                         const modeConfig = getRuntimeModeConfig(runtimeMode);
                         const shc = readShcV1Status({ repoRoot: rootDir });
+                        const design = readPdglV1Status({ repoRoot: rootDir });
                         const freshness = withRepoRoot(rootDir, () => computeContextFreshness({ worksetFiles: virtual.relatedFiles }));
                         return buildRuntimeContract({
                             repoRoot: rootDir,
@@ -974,8 +999,8 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
                             prompt: virtual.prompt,
                             lessons,
                             loop,
-                            runtime: { writeEnabled: Boolean(enableWrite), mode: runtimeMode, modeConfig, shc, freshness },
-                            rdl: { mode: runtimeMode, shc, freshness },
+                            runtime: { writeEnabled: Boolean(enableWrite), mode: runtimeMode, modeConfig, shc, design, freshness },
+                            rdl: { mode: runtimeMode, shc, design, freshness },
                             nextActions: [],
                             executionState: { sessionId: null, pauseId: null, phase: "planning", status: "planned" },
                         });
@@ -1033,6 +1058,7 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
                 const runtimeMode = resolveRuntimeMode({ repoRoot: rootDir });
                 const modeConfig = getRuntimeModeConfig(runtimeMode);
                 const shc = readShcV1Status({ repoRoot: rootDir });
+                const design = readPdglV1Status({ repoRoot: rootDir });
                 const freshness = withRepoRoot(rootDir, () => computeContextFreshness({ worksetFiles: [] }));
                 const contract = buildRuntimeContract({
                     repoRoot: rootDir,
@@ -1042,8 +1068,8 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
                     prompt: "",
                     lessons,
                     loop,
-                    runtime: { writeEnabled: Boolean(enableWrite), mode: runtimeMode, modeConfig, shc, freshness },
-                    rdl: { mode: runtimeMode, shc, freshness },
+                    runtime: { writeEnabled: Boolean(enableWrite), mode: runtimeMode, modeConfig, shc, design, freshness },
+                    rdl: { mode: runtimeMode, shc, design, freshness },
                     nextActions: [],
                     executionState: { sessionId, pauseId: match?.pauseId ?? null, phase: null, status: match?.status ?? null },
                 });
@@ -1501,6 +1527,51 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests }) {
                         },
                     });
                     return asTextResult(output.contractText);
+                },
+            ),
+            tool(
+                "rck.hygiene.apply",
+                "Apply one hygiene plan (archive/quarantine only). Requires enable-write, runtime mode policy, gate token, and a plan pauseToken.",
+                {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["plan", "confirm", "runtimeMode", "taskId", "token", "evidence"],
+                    properties: {
+                        plan: { type: "object" },
+                        confirm: { type: "string" },
+                        runtimeMode: { type: "string", enum: ["SAFE", "STANDARD", "REVIEW", "EXPERIMENTAL"] },
+                        taskId: { type: "string" },
+                        token: { type: "string" },
+                        evidence: { type: "object", additionalProperties: true },
+                    },
+                },
+                async (args) => {
+                    const input = normalizeArgs(args);
+                    const result = await runGovernedWrite({
+                        rootDir,
+                        toolName: "rck.hygiene.apply",
+                        input,
+                        requireTestsConfirmed: false,
+                        run: async () => {
+                            const plan = input.plan;
+                            const confirm = input.confirm;
+                            if (!plan || typeof plan !== "object") {
+                                throw new Error("plan is required");
+                            }
+                            if (!isNonEmptyString(confirm)) {
+                                throw new Error("confirm is required");
+                            }
+                            const applied = applyHygienePlan({
+                                repoRoot: rootDir,
+                                planSource: plan,
+                                enableWrite: true,
+                                confirm,
+                                runtimeMode: input.runtimeMode,
+                            });
+                            return { ok: true, summary: applied.summary, snapshotId: applied.snapshotId };
+                        },
+                    });
+                    return asTextResult(serializeJson(result));
                 },
             ),
         );

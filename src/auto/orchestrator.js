@@ -13,6 +13,7 @@ import { readLessonsFile } from "../lessons/store.js";
 import { writeRuntimeSnapshot } from "../runtime/snapshot.js";
 import { getRuntimeModeConfig, resolveRuntimeMode } from "../runtime/rdl/modes.js";
 import { readShcV1Status } from "../runtime/rdl/shc.js";
+import { readPdglV1Status } from "../runtime/rdl/pdgl.js";
 import { loadDesignDoc } from "../docs/doc-loader.js";
 import { extractPlanningData, buildPlanningSource } from "../docs/doc-extractor.js";
 
@@ -276,6 +277,7 @@ export async function orchestrateAuto({
                 : {}),
         };
         const shc = readShcV1Status({ repoRoot: rootDir });
+        const design = readPdglV1Status({ repoRoot: rootDir });
         const freshness = withRepoRoot(rootDir, () => computeContextFreshness({ worksetFiles: virtual.relatedFiles }));
 
         const contract = buildRuntimeContract({
@@ -292,8 +294,8 @@ export async function orchestrateAuto({
             prompt: virtual.prompt,
             lessons,
             loop,
-            runtime: { ...runtime, shc, freshness },
-            rdl: { mode: runtimeMode, shc, freshness },
+            runtime: { ...runtime, shc, design, freshness },
+            rdl: { mode: runtimeMode, shc, design, freshness },
             nextActions,
             executionState: { sessionId: null, pauseId: null, phase: "planning", status: "planned" },
         });
@@ -379,6 +381,7 @@ export async function orchestrateAuto({
     }
     const parsedDetail = parseTaskDetailMarkdown(createdTaskDetail);
     const shc = readShcV1Status({ repoRoot: rootDir });
+    const design = readPdglV1Status({ repoRoot: rootDir });
     const freshness = withRepoRoot(rootDir, () => computeContextFreshness({ worksetFiles }));
 
     const contract = buildRuntimeContract({
@@ -407,6 +410,7 @@ export async function orchestrateAuto({
             mode: runtimeMode,
             modeConfig: runtimeModeConfig,
             shc,
+            design,
             freshness,
             ...(docMode
                 ? {
@@ -423,7 +427,7 @@ export async function orchestrateAuto({
                 }
                 : {}),
         },
-        rdl: { mode: runtimeMode, shc, freshness },
+        rdl: { mode: runtimeMode, shc, design, freshness },
         nextActions: pauseId ? [`repo-context-kit execute confirm ${pauseId}`] : [],
         executionState: { sessionId, pauseId, phase: pause?.state?.phase ?? null, status: "started" },
     });

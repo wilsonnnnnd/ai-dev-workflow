@@ -31,6 +31,7 @@ import {
 import { exists, isDirectory, readJson, statSafe } from "./fs-utils.js";
 import { appendLoopEvent } from "../loop/store.js";
 import { getRepoRoot } from "../runtime/root-context.js";
+import { readPdglV1Status } from "../runtime/rdl/pdgl.js";
 import {
     detectPackageMetadata,
     detectTechStack,
@@ -1023,6 +1024,26 @@ export async function runScan(options = {}) {
 
         printCheckResult(update);
         printWarnings(taskWarnings);
+        const design = readPdglV1Status({ repoRoot: getRepoRoot() });
+        if (design.present !== true) {
+            console.log("");
+            console.log("Design warnings:");
+            console.log(`* runtime-design-incomplete`);
+            console.log("* Fill PDGL (v1) in .aidw/project.md to stabilize intent/constraints.");
+        } else if (Array.isArray(design.missingChecks) && design.missingChecks.length > 0) {
+            console.log("");
+            console.log("Design warnings:");
+            for (const id of design.missingChecks.slice(0, 12)) {
+                console.log(`* ${id}`);
+            }
+            if (Array.isArray(design.suggestedImprovements) && design.suggestedImprovements.length > 0) {
+                console.log("");
+                console.log("Suggested improvements:");
+                for (const item of design.suggestedImprovements.slice(0, 8)) {
+                    console.log(`* ${item}`);
+                }
+            }
+        }
 
         if (update.changed) {
             maybeAppendLearnableScanEvent({

@@ -13,6 +13,7 @@ import { runScan } from "../bin/scan.js";
 import { runTask } from "../bin/task.js";
 import { runGithub } from "../bin/github.js";
 import { startUiServer } from "../bin/ui.js";
+import { runHygiene } from "../bin/hygiene.js";
 import { PROJECT_TYPES } from "../src/scan/constants.js";
 import { detectProjectType } from "../src/scan/detectors/project-type.js";
 import { parseTaskRegistry } from "../src/scan/task-registry.js";
@@ -25,6 +26,11 @@ import { writeRuntimeSnapshot, readRuntimeSnapshot } from "../src/runtime/snapsh
 import { loadDesignDoc } from "../src/docs/doc-loader.js";
 import { extractPlanningData } from "../src/docs/doc-extractor.js";
 import { getRuntimeModeConfig } from "../src/runtime/rdl/modes.js";
+import { readPdglV1Status } from "../src/runtime/rdl/pdgl.js";
+import { explainBootstrapPlan } from "../src/bootstrap/explain.js";
+import { BOOTSTRAP_VERSION } from "../src/bootstrap/constants.js";
+import { hygieneScan } from "../src/hygiene/scan.js";
+import { hygienePlan } from "../src/hygiene/plan.js";
 
 const originalCwd = process.cwd();
 
@@ -542,6 +548,242 @@ Old content
     });
 });
 
+test("project.md template includes PDGL design sections", async () => {
+    await withTempProject(async () => {
+        writeFile(
+            "package.json",
+            JSON.stringify({ name: "pdgl-template", version: "0.0.0", type: "module" }, null, 4) + "\n",
+        );
+        await withMutedConsole(() => runInit());
+        await withMutedConsole(() => runScan());
+        const updated = fs.readFileSync(path.resolve(process.cwd(), ".aidw/project.md"), "utf-8");
+        assert.ok(updated.includes("<!-- PDGL:v1 START -->"));
+        assert.ok(updated.includes("### Project Identity"));
+        assert.ok(updated.includes("### Runtime Constraints"));
+    });
+});
+
+test("pdgl readiness score is deterministic for the same file content", async () => {
+    await withTempProject(async () => {
+        writeFile(
+            "package.json",
+            JSON.stringify({ name: "pdgl-det", version: "0.0.0", type: "module" }, null, 4) + "\n",
+        );
+        writeFile(".aidw/meta.json", JSON.stringify({ version: 1 }, null, 4) + "\n");
+        writeFile(".aidw/scan/last.json", JSON.stringify({ status: "not-run" }, null, 4) + "\n");
+        writeFile(
+            ".aidw/project.md",
+            `# Project Context
+
+<!-- AUTO-GENERATED START -->
+-
+<!-- AUTO-GENERATED END -->
+
+## Manual Notes
+
+## AI Runtime Project Design (PDGL) (v1)
+
+<!-- PDGL:v1 START -->
+### Project Identity
+- Project Name: TODO
+- One-line Summary: TODO
+- Target Users: TODO
+- Non-goals: TODO
+
+### Development Workflow
+- Testing strategy: TODO
+<!-- PDGL:v1 END -->
+`,
+        );
+        const a = readPdglV1Status({ repoRoot: process.cwd() });
+        const b = readPdglV1Status({ repoRoot: process.cwd() });
+        assert.deepEqual(a, b);
+        assert.ok(Array.isArray(a.missingChecks));
+    });
+});
+
+test("bootstrap explain includes Project Design Readiness", async () => {
+    await withTempProject(async () => {
+        writeFile(
+            "package.json",
+            JSON.stringify({ name: "bootstrap-pdgl", version: "0.0.0", type: "module" }, null, 4) + "\n",
+        );
+        writeFile(".aidw/meta.json", JSON.stringify({ version: 1 }, null, 4) + "\n");
+        writeFile(".aidw/scan/last.json", JSON.stringify({ status: "not-run" }, null, 4) + "\n");
+        writeFile(
+            ".aidw/project.md",
+            `# Project Context
+
+<!-- AUTO-GENERATED START -->
+-
+<!-- AUTO-GENERATED END -->
+
+## Manual Notes
+
+## AI Runtime Project Design (PDGL) (v1)
+
+<!-- PDGL:v1 START -->
+### Project Identity
+- Project Name: Example
+- One-line Summary: Example
+- Target Users: Example
+- Non-goals: Example
+
+### Product / Runtime Intent
+- What problem does this project solve?: Example
+- What should AI optimize for?: Example
+- What must AI avoid?: Example
+- What is intentionally out of scope?: Example
+
+### Stack Decisions
+- Language: Example
+- Framework: Example
+- Runtime: Example
+- Package Manager: Example
+- Database: Example
+- Deployment Environment: Example
+
+### Runtime Constraints
+- Files never touch: Example
+- Dangerous operations: Example
+- Deployment boundaries: Example
+- Network restrictions: Example
+- Command restrictions: Example
+- MCP write policy: Example
+
+### Development Workflow
+- Preferred workflow: Example
+- Testing strategy: Example
+- Definition of Done: Example
+- Required verification: Example
+- Snapshot expectations: Example
+
+### Architecture Notes
+- Entry points: Example
+- Directory conventions: Example
+- Config sources: Example
+- Critical modules: Example
+- Shared abstractions: Example
+
+### Bootstrap Guidance
+- Recommended scaffold: Example
+- Manual setup steps: Example
+- Human-required setup: Example
+- Secrets/config setup expectations: Example
+
+### AI Collaboration Rules
+- How AI should propose changes: Example
+- How AI should ask for clarification: Example
+- Preferred output structure: Example
+- What requires confirmation: Example
+<!-- PDGL:v1 END -->
+`,
+        );
+        const explained = explainBootstrapPlan({
+            planSource: {
+                plan: { bootstrapVersion: BOOTSTRAP_VERSION, ops: [], digest: "x", pauseToken: "y" },
+                contract: { repoRoot: process.cwd() },
+                risks: [],
+            },
+        });
+        assert.equal(explained.ok, true);
+        assert.ok(String(explained.output).includes("Project design guidance:"));
+        assert.ok(String(explained.output).includes("readiness:"));
+    });
+});
+
+test("hygiene scan only reports runtime-managed/task artifacts and is read-only", async () => {
+    await withTempProject(async () => {
+        writeFile(
+            "package.json",
+            JSON.stringify({ name: "hygiene-scan", version: "0.0.0", type: "module" }, null, 4) + "\n",
+        );
+        await withMutedConsole(() => runInit());
+        await withMutedConsole(() => runScan());
+        writeFile("task/T-999.md", "# Task\n");
+        const before = fs.existsSync(path.resolve(process.cwd(), ".aidw/archive"));
+        const result = hygieneScan({ repoRoot: process.cwd() });
+        assert.equal(result.ok, true);
+        for (const c of result.candidates) {
+            const paths = Object.values(c.evidence || {}).filter((v) => typeof v === "string");
+            for (const p of paths) {
+                if (p.includes("/") && !p.startsWith("task/") && !p.startsWith(".aidw/")) {
+                    assert.fail(`unexpected non-runtime path in hygiene evidence: ${p}`);
+                }
+            }
+        }
+        const after = fs.existsSync(path.resolve(process.cwd(), ".aidw/archive"));
+        assert.equal(before, after);
+    });
+});
+
+test("hygiene plan pauseToken is deterministic and apply rejects without enable-write", async () => {
+    await withTempProject(async () => {
+        writeFile(
+            "package.json",
+            JSON.stringify({ name: "hygiene-plan", version: "0.0.0", type: "module" }, null, 4) + "\n",
+        );
+        await withMutedConsole(() => runInit());
+        await withMutedConsole(() => runScan());
+        writeFile("task/T-888.md", "# Task\n");
+
+        const scan = hygieneScan({ repoRoot: process.cwd() });
+        const planA = hygienePlan({ repoRoot: process.cwd(), scanResult: scan }).plan;
+        const planB = hygienePlan({ repoRoot: process.cwd(), scanResult: scan }).plan;
+        assert.deepEqual(planA, planB);
+        assert.equal(typeof planA.pauseToken, "string");
+        assert.equal(planA.pauseToken.length, 32);
+
+        writeFile(".aidw/hygiene-plan.json", JSON.stringify({ plan: planA }, null, 2) + "\n");
+        process.exitCode = 0;
+        await withCapturedConsole(() =>
+            runHygiene(["apply", "--from-plan", ".aidw/hygiene-plan.json", "--confirm", planA.pauseToken, "--json"]),
+        );
+        assert.equal(process.exitCode, 1);
+        process.exitCode = 0;
+    });
+});
+
+test("REVIEW mode rejects hygiene apply", async () => {
+    await withTempProject(async () => {
+        writeFile(
+            "package.json",
+            JSON.stringify({ name: "hygiene-review", version: "0.0.0", type: "module" }, null, 4) + "\n",
+        );
+        await withMutedConsole(() => runInit());
+        await withMutedConsole(() => runScan());
+        writeFile("task/T-777.md", "# Task\n");
+        const scan = hygieneScan({ repoRoot: process.cwd() });
+        const plan = hygienePlan({ repoRoot: process.cwd(), scanResult: scan }).plan;
+        writeFile(".aidw/hygiene-plan.json", JSON.stringify({ plan }, null, 2) + "\n");
+
+        const prev = process.env.RCK_MODE;
+        process.env.RCK_MODE = "REVIEW";
+        try {
+            process.exitCode = 0;
+            await withCapturedConsole(() =>
+                runHygiene([
+                    "apply",
+                    "--from-plan",
+                    ".aidw/hygiene-plan.json",
+                    "--confirm",
+                    plan.pauseToken,
+                    "--enable-write",
+                    "--json",
+                ]),
+            );
+            assert.equal(process.exitCode, 1);
+        } finally {
+            if (prev === undefined) {
+                delete process.env.RCK_MODE;
+            } else {
+                process.env.RCK_MODE = prev;
+            }
+            process.exitCode = 0;
+        }
+    });
+});
+
 test("context freshness score is deterministic for the same repo state", async () => {
     await withTempProject(async () => {
         writeFile(
@@ -608,6 +850,26 @@ test("mcp governed write rejects missing runtimeMode/token/evidence", async () =
             const call = await request("tools/call", {
                 name: "rck.scan",
                 arguments: { mode: "normal" },
+            });
+            assert.equal(Boolean(call.error), true);
+            assert.ok(String(call.error.message).includes("runtimeMode"));
+        });
+    });
+});
+
+test("mcp hygiene apply requires runtimeMode/token/evidence", async () => {
+    await withTempProject(async (tempDir) => {
+        await withMutedConsole(() => runInit());
+        writeFile(
+            "package.json",
+            JSON.stringify({ name: "mcp-hygiene", version: "0.0.0", type: "module" }, null, 4) + "\n",
+        );
+        await withMutedConsole(() => runScan());
+        await withMcpServer({ args: ["--root", tempDir, "--enable-write"] }, async ({ request }) => {
+            await request("initialize", {});
+            const call = await request("tools/call", {
+                name: "rck.hygiene.apply",
+                arguments: { plan: { hygieneVersion: "hygiene/v1", digest: "x", pauseToken: "y", archiveTasks: [], archiveSnapshots: [], quarantineArtifacts: [], detachInvalidReferences: [], noActionItems: [], risks: [] }, confirm: "y" },
             });
             assert.equal(Boolean(call.error), true);
             assert.ok(String(call.error.message).includes("runtimeMode"));

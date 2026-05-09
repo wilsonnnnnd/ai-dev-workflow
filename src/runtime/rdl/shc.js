@@ -172,3 +172,33 @@ export function getShcV1RequiredSections() {
     return REQUIRED_SECTIONS.slice();
 }
 
+function readProjectMdRaw(repoRoot) {
+    const filePath = getProjectMdPath(repoRoot);
+    if (!fs.existsSync(filePath)) return null;
+    try {
+        return fs.readFileSync(filePath, "utf-8");
+    } catch {
+        return null;
+    }
+}
+
+export function readShcV1SectionLines({ repoRoot, sectionName } = {}) {
+    const raw = readProjectMdRaw(repoRoot);
+    if (!raw) return null;
+    const block = sliceBetweenMarkers(raw, SHC_START, SHC_END);
+    if (!block) return null;
+    const sectionBodies = extractSectionBodies(block);
+    const key = String(sectionName ?? "").trim();
+    if (!key) return null;
+    return sectionBodies.get(key) ?? null;
+}
+
+export function readFilesNeverTouchList({ repoRoot } = {}) {
+    const lines = readShcV1SectionLines({ repoRoot, sectionName: "Files Never Touch" });
+    const items = (Array.isArray(lines) ? lines : [])
+        .map((l) => String(l ?? "").trim())
+        .filter((l) => l.startsWith("- "))
+        .map((l) => l.slice(2).trim())
+        .filter((l) => l && !l.toLowerCase().includes("todo"));
+    return [...new Set(items)].sort((a, b) => a.localeCompare(b));
+}

@@ -1,9 +1,23 @@
+import fs from "node:fs";
+import path from "node:path";
 import { getRuntimeModeConfig } from "./rdl/modes.js";
+import { withRepoRoot } from "./root-context.js";
+import { parseTaskRegistry } from "../scan/task-registry.js";
+import { getTaskFileMetadata } from "../scan/task-files.js";
+import { listSnapshots } from "./snapshot-reader.js";
 
 function uniqueStrings(values) {
     return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((a, b) =>
         a.localeCompare(b),
     );
+}
+
+function fsExists(repoRoot, relPath) {
+    try {
+        return fs.existsSync(path.resolve(repoRoot, relPath));
+    } catch {
+        return false;
+    }
 }
 
 function clampString(value, maxChars) {
@@ -180,6 +194,7 @@ export function collectRuntimeRisks({
         ? runtimeObj.modeConfig
         : getRuntimeModeConfig(runtimeMode);
     const shc = runtimeObj?.shc && typeof runtimeObj.shc === "object" ? runtimeObj.shc : null;
+    const design = runtimeObj?.design && typeof runtimeObj.design === "object" ? runtimeObj.design : null;
     const freshness = runtimeObj?.freshness && typeof runtimeObj.freshness === "object" ? runtimeObj.freshness : null;
 
     if (scanStatus === "missing") {
@@ -229,6 +244,90 @@ export function collectRuntimeRisks({
             },
             suggestedAction: "Complete missing SHC sections and keep each section concise to reduce context drift.",
         });
+    }
+
+    if (!design || design.present !== true) {
+        pushRisk(risks, {
+            id: "runtime-design-incomplete",
+            severity: "warning",
+            source: "runtime",
+            category: "context",
+            message: "Project design guidance (PDGL) is missing or incomplete.",
+            evidence: { path: ".aidw/project.md", pdgl: "missing" },
+            suggestedAction: "Fill the PDGL (v1) section in .aidw/project.md to stabilize project intent and runtime constraints.",
+        });
+    } else {
+        const score = Number.isFinite(Number(design.score)) ? Number(design.score) : null;
+        const missingChecks = Array.isArray(design.missingChecks) ? uniqueStrings(design.missingChecks) : [];
+        const missingSections = Array.isArray(design.missingSections) ? uniqueStrings(design.missingSections) : [];
+        if (missingChecks.length > 0 || missingSections.length > 0 || (score != null && score < 80)) {
+            pushRisk(risks, {
+                id: "runtime-design-incomplete",
+                severity: "warning",
+                source: "runtime",
+                category: "context",
+                message: "Project design readiness is below the recommended threshold.",
+                evidence: { score, missingChecks: missingChecks.slice(0, 10), missingSections: missingSections.slice(0, 8) },
+                suggestedAction: Array.isArray(design.suggestedImprovements) && design.suggestedImprovements[0]
+                    ? String(design.suggestedImprovements[0])
+                    : "Fill missing PDGL sections (non-goals, testing strategy, runtime constraints) to reduce context drift.",
+            });
+        }
+        if (missingChecks.includes("runtime-missing-nongoals")) {
+            pushRisk(risks, {
+                id: "runtime-missing-nongoals",
+                severity: "warning",
+                source: "runtime",
+                category: "scope",
+                message: "Project design is missing explicit non-goals.",
+                evidence: { score },
+                suggestedAction: "Add a clear Non-goals list to prevent scope creep and reduce drift.",
+            });
+        }
+        if (missingChecks.includes("runtime-missing-test-strategy")) {
+            pushRisk(risks, {
+                id: "runtime-missing-test-strategy",
+                severity: "warning",
+                source: "runtime",
+                category: "testing",
+                message: "Project design is missing a testing strategy.",
+                evidence: { score },
+                suggestedAction: "Define a runnable test strategy and required verification steps before making changes.",
+            });
+        }
+        if (missingChecks.includes("runtime-missing-runtime-constraints")) {
+            pushRisk(risks, {
+                id: "runtime-missing-runtime-constraints",
+                severity: "warning",
+                source: "runtime",
+                category: "safety",
+                message: "Project design is missing runtime constraints.",
+                evidence: { score },
+                suggestedAction: "Define runtime constraints (dangerous ops, boundaries, command restrictions, MCP policy) for governance.",
+            });
+        }
+        if (missingChecks.includes("runtime-missing-deployment-boundaries")) {
+            pushRisk(risks, {
+                id: "runtime-missing-deployment-boundaries",
+                severity: "warning",
+                source: "runtime",
+                category: "safety",
+                message: "Project design is missing deployment boundaries.",
+                evidence: { score },
+                suggestedAction: "Clarify deployment boundaries so the runtime avoids infra/config areas by default.",
+            });
+        }
+        if (missingChecks.includes("runtime-missing-stack-decisions")) {
+            pushRisk(risks, {
+                id: "runtime-missing-stack-decisions",
+                severity: "warning",
+                source: "runtime",
+                category: "context",
+                message: "Project design is missing stack decisions.",
+                evidence: { score },
+                suggestedAction: "Record stack decisions (language/framework/runtime/package manager/db/deploy) to reduce reinvention.",
+            });
+        }
     }
 
     if (freshness) {
@@ -304,6 +403,64 @@ export function collectRuntimeRisks({
                 evidence: { score, signals: signalIds.slice(0, 10) },
                 suggestedAction: "Create a runtime snapshot after key milestones to improve auditability and replay.",
             });
+        }
+    }
+
+    if (root) {
+        const hygiene = (() => {
+            try {
+                const registry = withRepoRoot(root, () => parseTaskRegistry());
+                const tasks = Array.isArray(registry.tasks) ? registry.tasks : [];
+                const registryFiles = new Set(tasks.map((t) => String(t?.file ?? "").trim()).filter(Boolean));
+                const taskFiles = withRepoRoot(root, () => getTaskFileMetadata());
+                const orphanTaskFiles = taskFiles
+                    .map((t) => String(t?.path ?? "").trim())
+                    .filter(Boolean)
+                    .filter((p) => !registryFiles.has(p));
+                const detachedRegistry = tasks
+                    .map((t) => ({ id: String(t?.id ?? "").trim().toUpperCase(), file: String(t?.file ?? "").trim() }))
+                    .filter((t) => t.id && t.file && !fsExists(root, t.file));
+                const snapshots = listSnapshots({ repoRoot: root, limit: 80 });
+                const taskIds = new Set(tasks.map((t) => String(t?.id ?? "").trim().toUpperCase()).filter(Boolean));
+                const unusedSnapshots = snapshots.filter((s) => {
+                    const taskId = s?.taskId ? String(s.taskId).trim().toUpperCase() : null;
+                    if (!taskId) return true;
+                    if (taskId === "VIRTUAL") return false;
+                    return !taskIds.has(taskId);
+                });
+                return {
+                    orphanTaskFiles: orphanTaskFiles.slice(0, 12),
+                    detachedRegistry: detachedRegistry.slice(0, 12),
+                    unusedSnapshotCount: unusedSnapshots.length,
+                };
+            } catch {
+                return null;
+            }
+        })();
+
+        if (hygiene) {
+            if (hygiene.orphanTaskFiles.length || hygiene.detachedRegistry.length) {
+                pushRisk(risks, {
+                    id: "runtime-hygiene-orphan-artifact",
+                    severity: "info",
+                    source: "runtime",
+                    category: "stability",
+                    message: "Task hygiene issues detected (orphan task files or detached registry entries).",
+                    evidence: { orphanTaskFiles: hygiene.orphanTaskFiles, detachedRegistry: hygiene.detachedRegistry },
+                    suggestedAction: "Run repo-context-kit hygiene scan/plan to review and archive/quarantine runtime-managed artifacts.",
+                });
+            }
+            if (hygiene.unusedSnapshotCount > 0) {
+                pushRisk(risks, {
+                    id: "runtime-hygiene-unused-snapshot",
+                    severity: "info",
+                    source: "runtime",
+                    category: "stability",
+                    message: "Unused snapshots detected (missing taskId or missing task references).",
+                    evidence: { count: hygiene.unusedSnapshotCount },
+                    suggestedAction: "Run repo-context-kit hygiene plan to rotate snapshots and keep a bounded audit trail.",
+                });
+            }
         }
     }
 

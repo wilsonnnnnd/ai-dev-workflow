@@ -1,5 +1,6 @@
 import { serializeJson } from "../runtime/serialize.js";
 import { readBootstrapPlanPayload, getBootstrapPlanFromPayload } from "./plan-io.js";
+import { readPdglV1Status } from "../runtime/rdl/pdgl.js";
 
 function uniqueStrings(values) {
     return [...new Set(values.map((x) => String(x ?? "").trim()).filter(Boolean))].sort((a, b) =>
@@ -25,6 +26,7 @@ export function explainBootstrapPlan({ planSource } = {}) {
     const payload = readBootstrapPlanPayload(planSource);
     const plan = getBootstrapPlanFromPayload(payload);
     const contract = payload?.contract ?? null;
+    const repoRoot = contract?.repoRoot ?? null;
     const planningSource = contract?.planningSource ?? null;
     const scaffoldMeta = payload?.scaffoldMeta ?? contract?.bootstrap?.scaffoldMeta ?? null;
     const matchedRecipeIds = payload?.matchedRecipeIds ?? contract?.bootstrap?.matchedRecipeIds ?? [];
@@ -45,6 +47,7 @@ export function explainBootstrapPlan({ planSource } = {}) {
 
     const explain = {
         planningSource,
+        projectDesignReadiness: repoRoot ? readPdglV1Status({ repoRoot }) : null,
         detectedKeywords,
         matchedRecipeIds: matched,
         scaffoldHints: hints,
@@ -63,8 +66,22 @@ export function explainBootstrapPlan({ planSource } = {}) {
         "Bootstrap Plan Explain",
         "",
         planningSource ? `- planningSource: ${serializeJson(planningSource, { indent: 0 }).trim()}` : "- planningSource: -",
+        repoRoot ? `- projectDesignReadiness: ${Number.isFinite(Number(explain.projectDesignReadiness?.score)) ? `${Number(explain.projectDesignReadiness.score)}%` : "-"}` : "- projectDesignReadiness: -",
         `- digest: ${plan.digest ?? "-"}`,
         `- pauseToken: ${plan.pauseToken ?? "-"}`,
+        "",
+        "Project design guidance:",
+        ...(explain.projectDesignReadiness
+            ? [
+                `- readiness: ${Number.isFinite(Number(explain.projectDesignReadiness.score)) ? `${Number(explain.projectDesignReadiness.score)}%` : "-"}`,
+                explain.projectDesignReadiness.missingChecks?.length
+                    ? `- missing_checks: ${explain.projectDesignReadiness.missingChecks.slice(0, 12).join(", ")}`
+                    : "- missing_checks: (none)",
+                ...(Array.isArray(explain.projectDesignReadiness.suggestedImprovements) && explain.projectDesignReadiness.suggestedImprovements.length
+                    ? ["Suggested improvements:", ...explain.projectDesignReadiness.suggestedImprovements.slice(0, 8).map((x) => `- ${x}`)]
+                    : []),
+            ].filter(Boolean)
+            : ["- (not available)"]),
         "",
         "Detected keywords:",
         ...(detectedKeywords.length ? detectedKeywords.map((k) => `- ${k}`) : ["- (none)"]),
@@ -95,4 +112,3 @@ export function explainBootstrapPlan({ planSource } = {}) {
         output: lines.join("\n").trimEnd(),
     };
 }
-

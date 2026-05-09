@@ -41,6 +41,7 @@ export function explainRuntimeContract(contract) {
     const rdl = normalized.rdl && typeof normalized.rdl === "object" ? normalized.rdl : null;
     const runtimeMode = rdl?.mode ? String(rdl.mode).trim() : "-";
     const freshnessScore = Number.isFinite(Number(rdl?.freshness?.score)) ? Number(rdl.freshness.score) : null;
+    const designScore = Number.isFinite(Number(rdl?.design?.score)) ? Number(rdl.design.score) : null;
     const warnings = Array.isArray(validation.warnings) ? validation.warnings : [];
     const errors = Array.isArray(validation.errors) ? validation.errors : [];
     const retention = applySnapshotRetentionPolicy({ repoRoot: normalized.repoRoot || process.cwd() });
@@ -106,6 +107,26 @@ export function explainRuntimeContract(contract) {
                 Array.isArray(rdl.shc.overLimitSections) && rdl.shc.overLimitSections.length
                     ? `- over_limit_sections:\n${formatList(rdl.shc.overLimitSections.map((s) => `${s.section} (lines=${s.lineCount}, chars=${s.charCount})`))}`
                     : "- over_limit_sections: none",
+                "",
+            ].join("\n")
+            : null,
+        deepExplain && rdl?.design
+            ? [
+                "## Project Design Readiness (PDGL)",
+                "",
+                `- readiness: ${designScore != null ? `${designScore}%` : "-"}`,
+                Array.isArray(rdl.design.missingChecks) && rdl.design.missingChecks.length
+                    ? `- missing_checks:\n${formatList(rdl.design.missingChecks)}`
+                    : "- missing_checks: none",
+                Array.isArray(rdl.design.missingSections) && rdl.design.missingSections.length
+                    ? `- missing_sections:\n${formatList(rdl.design.missingSections)}`
+                    : "- missing_sections: none",
+                Array.isArray(rdl.design.weakSections) && rdl.design.weakSections.length
+                    ? `- weak_sections:\n${formatList(rdl.design.weakSections)}`
+                    : "- weak_sections: none",
+                Array.isArray(rdl.design.suggestedImprovements) && rdl.design.suggestedImprovements.length
+                    ? `- suggested_improvements:\n${formatList(rdl.design.suggestedImprovements)}`
+                    : "- suggested_improvements: none",
                 "",
             ].join("\n")
             : null,

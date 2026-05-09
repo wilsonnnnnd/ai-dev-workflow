@@ -18,6 +18,7 @@ import { runCheck } from "./check.js";
 import { runAuto } from "./auto.js";
 import { runRuntime } from "./runtime.js";
 import { runBootstrap } from "./bootstrap.js";
+import { runHygiene } from "./hygiene.js";
 import {
     CONTEXT_PROJECT_MD_PATH,
     CONTEXT_SYSTEM_OVERVIEW_PATH,
@@ -44,6 +45,7 @@ Core Runtime:
   context                   Print bounded task context (worksets)
   execute                   Pause/confirm flow (does not edit code)
   gate                      Confirmation gate and allowlisted test runs
+  hygiene                   Detect/plan/apply runtime-managed hygiene (archive/quarantine only)
 
 Advanced Runtime:
   learn                     Derive lessons from failures
@@ -195,6 +197,12 @@ export async function main(args = process.argv.slice(2)) {
     if (command === "bootstrap") {
         const commandIndex = args.indexOf(command);
         await runBootstrap(args.slice(commandIndex + 1));
+        return;
+    }
+
+    if (command === "hygiene") {
+        const commandIndex = args.indexOf(command);
+        await runHygiene(args.slice(commandIndex + 1));
         return;
     }
 

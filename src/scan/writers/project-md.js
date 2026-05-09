@@ -27,6 +27,64 @@ ${AUTO_GENERATED_END}
 - Preserve backward compatibility for shared code paths, public APIs, and common workflows where possible.
 - Treat config, environment behavior, routing, and schema changes as higher-risk areas that need extra caution.
 
+## AI Runtime Project Design (PDGL) (v1)
+
+<!-- PDGL:v1 START -->
+### Project Identity
+- Project Name: TODO
+- One-line Summary: TODO
+- Target Users: TODO
+- Non-goals: TODO
+
+### Product / Runtime Intent
+- What problem does this project solve?: TODO
+- What should AI optimize for?: TODO
+- What must AI avoid?: TODO
+- What is intentionally out of scope?: TODO
+
+### Stack Decisions
+- Language: TODO
+- Framework: TODO
+- Runtime: TODO
+- Package Manager: TODO
+- Database: TODO
+- Deployment Environment: TODO
+
+### Runtime Constraints
+- Files never touch: TODO
+- Dangerous operations: TODO
+- Deployment boundaries: TODO
+- Network restrictions: TODO
+- Command restrictions: TODO
+- MCP write policy: TODO
+
+### Development Workflow
+- Preferred workflow: TODO
+- Testing strategy: TODO
+- Definition of Done: TODO
+- Required verification: TODO
+- Snapshot expectations: TODO
+
+### Architecture Notes
+- Entry points: TODO
+- Directory conventions: TODO
+- Config sources: TODO
+- Critical modules: TODO
+- Shared abstractions: TODO
+
+### Bootstrap Guidance
+- Recommended scaffold: TODO
+- Manual setup steps: TODO
+- Human-required setup: TODO
+- Secrets/config setup expectations: TODO
+
+### AI Collaboration Rules
+- How AI should propose changes: TODO
+- How AI should ask for clarification: TODO
+- Preferred output structure: TODO
+- What requires confirmation: TODO
+<!-- PDGL:v1 END -->
+
 ## Stable Human Context (SHC) (v1)
 
 <!-- SHC:v1 START -->

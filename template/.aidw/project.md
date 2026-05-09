@@ -7,6 +7,101 @@ Do not edit manually.
 
 ## Manual Notes
 
+## AI Runtime Project Design (PDGL) (v1)
+
+<!-- PDGL:v1 START -->
+### Project Identity
+- Project Name: TODO
+- One-line Summary: TODO
+- Target Users: TODO
+- Non-goals: TODO
+
+### Product / Runtime Intent
+- What problem does this project solve?: TODO
+- What should AI optimize for?: TODO
+- What must AI avoid?: TODO
+- What is intentionally out of scope?: TODO
+
+### Stack Decisions
+- Language: TODO
+- Framework: TODO
+- Runtime: TODO
+- Package Manager: TODO
+- Database: TODO
+- Deployment Environment: TODO
+
+### Runtime Constraints
+- Files never touch: TODO
+- Dangerous operations: TODO
+- Deployment boundaries: TODO
+- Network restrictions: TODO
+- Command restrictions: TODO
+- MCP write policy: TODO
+
+### Development Workflow
+- Preferred workflow: TODO
+- Testing strategy: TODO
+- Definition of Done: TODO
+- Required verification: TODO
+- Snapshot expectations: TODO
+
+### Architecture Notes
+- Entry points: TODO
+- Directory conventions: TODO
+- Config sources: TODO
+- Critical modules: TODO
+- Shared abstractions: TODO
+
+### Bootstrap Guidance
+- Recommended scaffold: TODO
+- Manual setup steps: TODO
+- Human-required setup: TODO
+- Secrets/config setup expectations: TODO
+
+### AI Collaboration Rules
+- How AI should propose changes: TODO
+- How AI should ask for clarification: TODO
+- Preferred output structure: TODO
+- What requires confirmation: TODO
+<!-- PDGL:v1 END -->
+
+## Stable Human Context (SHC) (v1)
+
+<!-- SHC:v1 START -->
+### Project Goal
+- TODO
+
+### Target Users
+- TODO
+
+### Non-goals
+- TODO
+
+### Stack Decisions
+- TODO
+
+### Runtime Constraints
+- TODO
+
+### Directory Conventions
+- TODO
+
+### Config Sources
+- TODO
+
+### Testing Strategy
+- TODO
+
+### Release Constraints
+- TODO
+
+### Files Never Touch
+- TODO
+
+### Deployment Boundaries
+- TODO
+<!-- SHC:v1 END -->
+
 ## Project Role
 
 Use this file as the primary AI-readable project context. Keep stable architecture notes, workflow constraints, and editing boundaries here so AI tools can understand the repository before suggesting or implementing changes.
