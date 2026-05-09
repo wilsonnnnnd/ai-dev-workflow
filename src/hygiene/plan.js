@@ -1,12 +1,8 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { serializeJson } from "../runtime/serialize.js";
 import { HYGIENE_LIMITS, HYGIENE_PATHS, HYGIENE_VERSION } from "./constants.js";
-
-function sha256Hex(value) {
-    return crypto.createHash("sha256").update(value).digest("hex");
-}
+import { ensureDirForFile, normalizeRepoRelativePath, sha256Hex, toRel, uniqSorted } from "./utils.js";
 
 function buildPlanDigest(plan) {
     const normalized = serializeJson(plan, { indent: 0 }).trim();
@@ -17,24 +13,8 @@ function buildPauseToken(digest) {
     return sha256Hex(`${HYGIENE_VERSION}:${String(digest ?? "")}`).slice(0, 32);
 }
 
-function uniqSorted(values) {
-    return [...new Set(values.map((v) => String(v ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-
-function ensureDir(fullPath) {
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-}
-
-function toRel(repoRoot, fullPath) {
-    return path.relative(repoRoot, fullPath).replaceAll("\\", "/");
-}
-
 function safeRelPath(value) {
-    const text = String(value ?? "").trim().replaceAll("\\", "/");
-    if (!text) return null;
-    if (text.startsWith("/") || /^[A-Za-z]:\//.test(text)) return null;
-    if (text.split("/").some((p) => p === ".." || p === "." || !p)) return null;
-    return text;
+    return normalizeRepoRelativePath(value);
 }
 
 function isTaskFilePath(rel) {
@@ -175,7 +155,7 @@ export function writeHygienePlanFile({ repoRoot, plan, outPath } = {}) {
         process.stdout.write(content);
         return { ok: true, file: "-" };
     }
-    ensureDir(filePath);
+    ensureDirForFile(filePath);
     fs.writeFileSync(filePath, content, "utf-8");
     return { ok: true, file: toRel(root, filePath) };
 }

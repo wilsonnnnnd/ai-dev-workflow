@@ -35,15 +35,13 @@ function formatTask(task) {
 
 function formatState(state) {
     return [
-        "# Executor State",
+        "# Runtime Run",
         "",
-        `- protocol: ${state?.protocol ?? "-"}`,
-        `- taskId: ${state?.activeTaskId ?? "-"}`,
+        `- task: ${state?.activeTaskId ?? "-"}`,
         `- phase: ${state?.phase ?? "-"}`,
-        `- pauseId: ${state?.pauseId ?? "-"}`,
-        `- next_action: ${state?.pauseType ?? "-"}`,
+        `- waiting for: ${state?.pauseType ?? "-"}`,
         `- message: ${state?.message ?? "-"}`,
-        `- updatedAt: ${state?.updatedAt ?? "-"}`,
+        `- pause id: ${state?.pauseId ?? "-"}`,
     ].join("\n");
 }
 
@@ -55,22 +53,22 @@ function formatNextStepsFromState(state) {
 
     if (pauseId && typeof pauseId === "string") {
         lines.push("Next:");
-        lines.push(`repo-context-kit execute confirm ${pauseId}`);
+        lines.push(`- Approve this step: repo-context-kit execute confirm ${pauseId}`);
     }
 
     if (phase === "testing" && taskId) {
         lines.push("");
         lines.push("Next (testing):");
-        lines.push(`repo-context-kit gate confirm task ${taskId} --json`);
-        lines.push(`repo-context-kit gate confirm tests ${taskId}`);
-        lines.push(`repo-context-kit gate run-test ${taskId} --token <token>`);
-        lines.push("repo-context-kit execute sync");
+        lines.push(`- Approve task scope: repo-context-kit gate confirm task ${taskId} --json`);
+        lines.push(`- Approve tests: repo-context-kit gate confirm tests ${taskId}`);
+        lines.push(`- Run approved tests: repo-context-kit gate run-test ${taskId} --token <token>`);
+        lines.push("- Sync runtime state: repo-context-kit execute sync");
     }
 
     if (phase === "completed") {
         lines.push("");
         lines.push("Next:");
-        lines.push("repo-context-kit execute next");
+        lines.push("- Continue: repo-context-kit execute next");
     }
 
     if (phase === "failed") {
@@ -94,7 +92,9 @@ function formatHints(hints) {
 function printExecutorResult(result) {
     const blocks = [];
     if (result?.task) {
-        blocks.push("# Semi-Auto Executor");
+        blocks.push(`# Runtime Run Started: ${result.task.id ?? "-"}`);
+        blocks.push("");
+        blocks.push("The runtime will pause at each approval point. It does not edit code or run tests without confirmation.");
         blocks.push("");
         blocks.push("## Task");
         blocks.push("");

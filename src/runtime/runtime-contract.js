@@ -82,6 +82,8 @@ export function buildRuntimeContract(payload = {}) {
     const risks = normalizeRuntimeRisks(risksRaw);
     const nextActions = Array.isArray(payload.nextActions) ? sortStrings(payload.nextActions) : [];
     const executionState = normalizeExecutionState(payload.executionState);
+    const runtime = Object.hasOwn(payload, "runtime") ? payload.runtime : undefined;
+    const rdl = Object.hasOwn(payload, "rdl") ? payload.rdl : undefined;
 
     return normalizeRuntimeContract({
         runtimeVersion,
@@ -94,5 +96,7 @@ export function buildRuntimeContract(payload = {}) {
         risks,
         nextActions,
         executionState,
+        ...(runtime !== undefined ? { runtime } : {}),
+        ...(rdl !== undefined ? { rdl } : {}),
     });
 }

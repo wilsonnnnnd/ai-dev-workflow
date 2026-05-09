@@ -8,6 +8,7 @@ import { MANAGED_CONTEXT_FILE_PATHS } from "../scan/constants.js";
 import { BOOTSTRAP_ALLOWED_OPS, BOOTSTRAP_VERSION } from "./constants.js";
 import { assertBootstrapPathAllowed, resolveWithinRepoRoot } from "./paths.js";
 import { readTemplateFileBytes } from "./template.js";
+import { readJsonPayload } from "../runtime/json-payload.js";
 
 const PROHIBITED_OP_KEYS = new Set([
     "run",
@@ -50,19 +51,7 @@ function ensureDir(fullPath) {
 }
 
 function readJsonFromPlanSource(source) {
-    if (source && typeof source === "object") {
-        return source;
-    }
-    if (typeof source === "string" && source.trim() === "-") {
-        const raw = fs.readFileSync(0, "utf-8");
-        return JSON.parse(raw);
-    }
-    const filePath = String(source ?? "").trim();
-    if (!filePath) {
-        throw new Error("plan path is required");
-    }
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw);
+    return readJsonPayload(source, { missingPathError: "plan path is required" });
 }
 
 function validatePlanShape(plan) {

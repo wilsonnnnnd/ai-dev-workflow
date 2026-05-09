@@ -19,10 +19,9 @@ import { runAuto } from "./auto.js";
 import { runRuntime } from "./runtime.js";
 import { runBootstrap } from "./bootstrap.js";
 import { runHygiene } from "./hygiene.js";
-import {
-    CONTEXT_PROJECT_MD_PATH,
-    CONTEXT_SYSTEM_OVERVIEW_PATH,
-} from "../src/scan/constants.js";
+import { loadGateState } from "../src/gate/state.js";
+import { computeScanCheckState } from "../src/scan/index.js";
+import { getRegistryStatusBreakdown, parseTaskRegistry } from "../src/scan/task-registry.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,45 +30,66 @@ function printHelp() {
     console.log(`Usage:
   repo-context-kit <command> [options]
 
-Getting Started:
-  init                     Copy workflow template into the current repository
-  scan                     Update ${CONTEXT_PROJECT_MD_PATH}, ${CONTEXT_SYSTEM_OVERVIEW_PATH}, and indexes
-  auto --goal "<goal>"      Create a bounded plan (task + workset + runtime contract); no source edits
-  auto --from-doc <path>    Create a bounded plan from a design doc (deterministic extraction; no source edits)
-  task generate --from-doc  Generate task files from a design doc (bounded, deterministic)
-
-Core Runtime:
-  runtime snapshot          Browse snapshots (list/read/explain/diff/retention)
-  bootstrap                 New project bootstrap runtime (plan/inspect/apply)
-  task                      Create tasks and print prompts/checklists/PR text
-  context                   Print bounded task context (worksets)
-  execute                   Pause/confirm flow (does not edit code)
-  gate                      Confirmation gate and allowlisted test runs
-  hygiene                   Detect/plan/apply runtime-managed hygiene (archive/quarantine only)
-
-Advanced Runtime:
-  learn                     Derive lessons from failures
-  check                     Enforce lessons-derived constraints
-  decision                  Explain recent runtime decisions
-  budget                    Show budget policy
-  loop                      Report loop signals (no command execution)
-  github                    GitHub helpers (token stored in user config)
-  ui                        Local web console
+AI Development Journey:
+  init                     Install the repo workflow files
+  scan                     Build or refresh the repository map
+  task new "..."            Define reviewable work
+  task from-doc <path>      Define work from a design doc
+  context next              Show the next ready task
+  context for <taskId>      Prepare focused AI context
+  task prompt <taskId>      Print an AI-ready work prompt
+  task pr <taskId>          Prepare review/PR text
+  status                   Show the next recommended step
 
 Global options:
   --help                    Show this help message
   --version                 Show package version
+  --help --advanced         Show all commands
 
-Init options:
-  --dry-run                 Show what init would create without writing files
-  --force                   Recreate managed files without deleting unknown files
+More commands are available with: repo-context-kit --help --advanced`);
+}
 
-Scan options:
-  --check                   Check whether scan output is up to date (no writes)
-  --plan                    Preview which files scan would update (no writes)
-  --auto                    Update project context without prompts
+function printAdvancedHelp() {
+    console.log(`Usage:
+  repo-context-kit <command> [options]
 
-Budget options (context/task):
+Default Journey:
+  init
+  scan [--check|--plan|--auto]
+  status
+  task new "Task title" [--force] [--dry-run]
+  task from-doc <path> [--dry-run] [--json]
+  task prompt <taskId> [--deep] [--compact] [--full-detail] [--full-workset]
+  task checklist <taskId> [--deep]
+  task pr <taskId> [--deep] [--cleanup]
+  context brief
+  context next
+  context for <taskId> [--compact|--digest] [--deep]
+
+Runtime Controls:
+  gate status|reset
+  gate confirm task <taskId> [--ttl-minutes N] [--json]
+  gate confirm tests <taskId> [--json]
+  gate run-test <taskId> --token <token>
+  execute status|next|run <taskId>|confirm <pauseId>|sync|reset
+  loop report [--task <taskId>]
+  budget show
+  decision explain
+  learn ingest [--dry-run]
+  learn approve
+  check [--explain] [--strict|--warn-only]
+
+Infrastructure:
+  runtime snapshot list|read|explain|diff|retention
+  bootstrap plan|inspect|explain|diff|apply
+  hygiene scan|plan|apply
+  github auth status|set|unset
+  ui
+
+MCP:
+  repo-context-kit-mcp [--root <path>] [--enable-write] [--enable-tests]
+
+Context detail options:
   --budget <mode>           off | auto | full (or REPO_CONTEXT_KIT_BUDGET)`);
 }
 
@@ -80,8 +100,56 @@ function getVersion() {
     return pkg.version;
 }
 
+function printStatus() {
+    const registry = parseTaskRegistry();
+    const breakdown = getRegistryStatusBreakdown(registry.tasks);
+    const gate = loadGateState();
+    let scanKnown = false;
+    let scanFresh = false;
+
+    try {
+        const { update } = computeScanCheckState();
+        scanKnown = true;
+        scanFresh = !update.changed;
+    } catch {
+        scanKnown = false;
+    }
+
+    const next = registry.tasks.find((task) => ["in_progress", "todo"].includes(String(task.status || "todo").toLowerCase()));
+
+    console.log("Project Status");
+    console.log("");
+    console.log(`- repository map: ${scanKnown ? (scanFresh ? "current" : "needs refresh") : "unknown"}`);
+    console.log(`- tasks: todo=${breakdown.todo}, in_progress=${breakdown.in_progress}, done=${breakdown.done}, blocked=${breakdown.blocked}`);
+    console.log(`- approval: ${gate.active?.taskId ? `active for ${gate.active.taskId}` : "none"}`);
+    console.log("");
+    console.log("Next:");
+    if (!scanFresh) {
+        console.log("- Refresh the repository map: repo-context-kit scan");
+    } else if (next?.id) {
+        console.log(`- Prepare AI context: repo-context-kit task prompt ${next.id}`);
+    } else {
+        console.log('- Define work: repo-context-kit task new "Describe the work"');
+    }
+}
+
 export async function main(args = process.argv.slice(2)) {
     const command = args.find((arg) => !arg.startsWith("--")) ?? "init";
+
+    if (args.includes("--help") && args.includes("--advanced")) {
+        printAdvancedHelp();
+        return;
+    }
+
+    if (args.includes("--help") && command === "task") {
+        await runTask(["help"]);
+        return;
+    }
+
+    if (args.includes("--help") && command === "context") {
+        await runContext(["help"]);
+        return;
+    }
 
     if (args.includes("--help")) {
         printHelp();
@@ -117,6 +185,11 @@ export async function main(args = process.argv.slice(2)) {
         return;
     }
 
+    if (command === "status") {
+        printStatus();
+        return;
+    }
+
     if (command === "auto") {
         const commandIndex = args.indexOf(command);
         await runAuto(args.slice(commandIndex + 1));
@@ -125,13 +198,32 @@ export async function main(args = process.argv.slice(2)) {
 
     if (command === "task") {
         const commandIndex = args.indexOf(command);
-        await runTask(args.slice(commandIndex + 1));
+        const taskArgs = args.slice(commandIndex + 1);
+        if (taskArgs[0] === "plan") {
+            await runAuto(taskArgs.slice(1));
+            return;
+        }
+        if (taskArgs[0] === "from-doc") {
+            const [docPath, ...rest] = taskArgs.slice(1);
+            await runTask(["generate", "--from-doc", docPath, ...rest].filter(Boolean));
+            return;
+        }
+        await runTask(taskArgs);
         return;
     }
 
     if (command === "context") {
         const commandIndex = args.indexOf(command);
-        await runContext(args.slice(commandIndex + 1));
+        const contextArgs = args.slice(commandIndex + 1);
+        if (contextArgs[0] === "next") {
+            await runContext(["next-task", ...contextArgs.slice(1)]);
+            return;
+        }
+        if (contextArgs[0] === "for") {
+            await runContext(["workset", ...contextArgs.slice(1)]);
+            return;
+        }
+        await runContext(contextArgs);
         return;
     }
 

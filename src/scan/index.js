@@ -337,7 +337,10 @@ function printChanges(updatedFiles) {
 }
 
 function printDefaultScanResult(result) {
+    console.log("Repository Map Updated");
     console.log("OK Project scan completed");
+    console.log("");
+    console.log("repo-context-kit refreshed the project map AI tools use before planning work.");
     console.log("");
     printChanges(result.updatedFiles);
     console.log("");
@@ -350,16 +353,25 @@ function printDefaultScanResult(result) {
                 : "None detected"
         }`,
     );
+    console.log("");
+    console.log("Next:");
+    console.log('* Define work: repo-context-kit task new "Describe the work"');
+    console.log("* Or prepare AI context: repo-context-kit context next");
     printWarnings(result.warnings);
 }
 
 function printAutoScanResult(result) {
+    console.log("Repository Map Updated");
     console.log("OK Project scan completed");
+    console.log("");
+    console.log("Mode: automatic refresh");
+    console.log("Mode:");
+    console.log("* auto");
     console.log("");
     printChanges(result.updatedFiles);
     console.log("");
-    console.log("Mode:");
-    console.log("* auto");
+    console.log("Next:");
+    console.log("* Continue with the current task or ask for focused context.");
     printWarnings(result.warnings);
 }
 
@@ -751,8 +763,12 @@ export function computeContextFreshness(options = {}) {
 }
 
 function printScanPlan({ willUpdate = [], reasons = [] }) {
+    console.log("Repository Map Needs Refresh");
     console.log("Scan Plan");
     console.log("");
+    console.log("No files were written.");
+    console.log("");
+    console.log("Would update:");
     console.log("Will update:");
     if (willUpdate.length === 0) {
         console.log("- (none)");
@@ -762,6 +778,7 @@ function printScanPlan({ willUpdate = [], reasons = [] }) {
         }
     }
     console.log("");
+    console.log("Why:");
     console.log("Reasons:");
     if (reasons.length === 0) {
         console.log("- (none)");
@@ -771,7 +788,8 @@ function printScanPlan({ willUpdate = [], reasons = [] }) {
         }
     }
     console.log("");
-    console.log("No files were written.");
+    console.log("Next:");
+    console.log("- Run: repo-context-kit scan");
 }
 
 function combineCheckUpdates(projectUpdate, systemOverviewUpdate, warnings) {

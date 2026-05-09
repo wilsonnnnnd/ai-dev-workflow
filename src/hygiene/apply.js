@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { withRepoRoot } from "../runtime/root-context.js";
@@ -10,24 +9,11 @@ import { computeScanCheckState } from "../scan/index.js";
 import { resolveRuntimeMode, getRuntimeModeConfig } from "../runtime/rdl/modes.js";
 import { readFilesNeverTouchList } from "../runtime/rdl/shc.js";
 import { HYGIENE_LIMITS, HYGIENE_PATHS, HYGIENE_VERSION } from "./constants.js";
-
-function sha256Hex(value) {
-    return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function isPlainObject(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    const proto = Object.getPrototypeOf(value);
-    return proto === Object.prototype || proto === null;
-}
+import { ensureDirForFile, isPlainObject, normalizeRepoRelativePath, sha256Hex, uniqSorted } from "./utils.js";
+import { pickPlanObject, readJsonPayload } from "../runtime/json-payload.js";
 
 function normalizeRelPath(value) {
-    const text = String(value ?? "").trim().replaceAll("\\", "/");
-    if (!text) return null;
-    if (text.startsWith("/") || /^[A-Za-z]:\//.test(text)) return null;
-    const parts = text.split("/");
-    if (parts.some((p) => p === ".." || p === "." || p === "")) return null;
-    return parts.join("/");
+    return normalizeRepoRelativePath(value);
 }
 
 function assertRuntimeManagedPath(rel) {
@@ -59,10 +45,6 @@ function matchesNeverTouch(rel, neverTouch) {
         if (!r.endsWith("/") && p.startsWith(`${r}/`)) return true;
     }
     return false;
-}
-
-function ensureDirForFile(fullPath) {
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
 }
 
 function moveFile({ repoRoot, from, to }) {
@@ -159,22 +141,11 @@ function detachRegistryEntries({ repoRoot, items }) {
 }
 
 export function readHygienePlanPayload(source) {
-    if (source && typeof source === "object") {
-        return source;
-    }
-    if (typeof source === "string" && source.trim() === "-") {
-        const raw = fs.readFileSync(0, "utf-8");
-        return JSON.parse(raw);
-    }
-    const filePath = String(source ?? "").trim();
-    if (!filePath) throw new Error("plan path is required");
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw);
+    return readJsonPayload(source, { missingPathError: "plan path is required" });
 }
 
 export function getHygienePlanFromPayload(payload) {
-    const plan = isPlainObject(payload?.plan) ? payload.plan : payload;
-    if (!isPlainObject(plan)) throw new Error("plan must be an object");
+    const plan = pickPlanObject(payload);
     if (String(plan.hygieneVersion ?? "") !== HYGIENE_VERSION) {
         throw new Error("unsupported hygiene plan version");
     }
@@ -321,8 +292,3 @@ export function applyHygienePlan({ repoRoot, planSource, enableWrite = false, co
         output: serializeJson({ ok: true, summary }, { indent: 4 }),
     };
 }
-
-function uniqSorted(values) {
-    return [...new Set(values.map((v) => String(v ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-

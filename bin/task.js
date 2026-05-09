@@ -1418,7 +1418,19 @@ export function buildTaskPrompt(taskRef, options = {}) {
         budgetSignalCount: reasonCodes.length,
     };
     const parts = [
-        "# Task Implementation Prompt",
+        `# AI Work Prompt: ${task.id} ${task.title}`,
+        "## Task Implementation Prompt",
+        [
+            "This prompt gives the AI:",
+            "",
+            "- the task goal",
+            "- allowed scope",
+            "- relevant files",
+            "- safety boundaries",
+            "- verification steps",
+            "",
+            "Use it with your AI coding tool. The runtime keeps execution bounded; it does not grant autonomous write access.",
+        ].join("\n"),
         compact
             ? [
                   "## Rules",
@@ -1545,6 +1557,25 @@ export async function runTask(args = []) {
     const compactLocked = args.includes("--compact");
     const manifestLocked = args.includes("--manifest");
     const verboseLocked = args.includes("--verbose");
+
+    if (subcommand === "help" || subcommand === "--help") {
+        console.log("Usage:");
+        console.log('  repo-context-kit task new "Task title" [--force] [--dry-run]');
+        console.log("  repo-context-kit task from-doc <path> [--dry-run] [--json]");
+        console.log('  repo-context-kit task plan --goal "..." [--dry-run] [--json]');
+        console.log("  repo-context-kit task prompt <taskId> [--deep] [--compact] [--full-detail] [--full-workset]");
+        console.log("  repo-context-kit task checklist <taskId> [--deep]");
+        console.log("  repo-context-kit task pr <taskId> [--deep] [--cleanup]");
+        console.log("");
+        console.log("Compatibility:");
+        console.log("  task from-doc <path> forwards to task generate --from-doc <path>");
+        console.log('  task plan --goal "..." forwards to auto --goal "..."');
+        console.log("  task generate, task run, and task cleanup remain available.");
+        return {
+            created: null,
+            output: null,
+        };
+    }
 
     if (subcommand === "pr") {
         const taskId = args.slice(1).find((arg) => !arg.startsWith("--"));
@@ -1716,6 +1747,11 @@ export async function runTask(args = []) {
         return {
             output,
         };
+    }
+
+    if (subcommand === "from-doc") {
+        const [docPath, ...rest] = args.slice(1);
+        return runTask(["generate", "--from-doc", docPath, ...rest].filter(Boolean));
     }
 
     if (subcommand === "generate") {
@@ -1989,6 +2025,7 @@ export async function runTask(args = []) {
         console.error("Unknown task command.");
         console.log("Usage:");
         console.log('  repo-context-kit task new "Task title" [--force] [--dry-run]');
+        console.log("  repo-context-kit task from-doc <path> [--dry-run] [--json]");
         console.log("  repo-context-kit task generate [--from-doc <path>] [--dry-run] [--json]");
         console.log("  repo-context-kit task run");
         console.log("  repo-context-kit task checklist <taskId> [--deep]");

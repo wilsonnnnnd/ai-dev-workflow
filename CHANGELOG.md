@@ -4,6 +4,12 @@
 
 ### Patch Changes
 
+- Productized the default AI development runtime experience.
+  - The default help now focuses on the main onboarding path, while advanced runtime controls remain available behind `--help --advanced`.
+  - Added friendly aliases for common context and task flows: `context next`, `context for <taskId>`, `task from-doc <path>`, and `task plan --goal "..."`.
+  - Added `status` as a lightweight entry point for repository freshness, task summary, approval state, and next action.
+  - Runtime safety boundaries, confirmation gates, MCP write policy, hygiene apply rules, bootstrap apply allowlists, and snapshot contracts remain unchanged.
+
 - b9f1f17: 添加 package.json 内容哈希校验以改进变更检测
 
 ## 1.5.0

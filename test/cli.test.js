@@ -26,6 +26,7 @@ import { writeRuntimeSnapshot, readRuntimeSnapshot } from "../src/runtime/snapsh
 import { loadDesignDoc } from "../src/docs/doc-loader.js";
 import { extractPlanningData } from "../src/docs/doc-extractor.js";
 import { getRuntimeModeConfig } from "../src/runtime/rdl/modes.js";
+import { minimalTaskRegistryMarkdown } from "./helpers.js";
 import { readPdglV1Status } from "../src/runtime/rdl/pdgl.js";
 import { explainBootstrapPlan } from "../src/bootstrap/explain.js";
 import { BOOTSTRAP_VERSION } from "../src/bootstrap/constants.js";
@@ -251,13 +252,7 @@ test("mcp server exposes read-only tools by default", async () => {
         writeFile("AGENTS.md", "# Agents\n");
         writeFile(
             "task/task.md",
-            `# Task Registry
-
-## Tasks
-
-| ID | Title | Status | Priority | Owner | Dependencies | File |
-|----|------|--------|----------|-------|--------------|------|
-`,
+            minimalTaskRegistryMarkdown(),
         );
         writeFile(".aidw/project.md", "# Project Context\n\n<!-- AUTO-GENERATED START -->\n<!-- AUTO-GENERATED END -->\n");
         writeFile(".aidw/system-overview.md", "# System Overview\n");
@@ -511,13 +506,7 @@ test("scan preserves SHC block outside AUTO-GENERATED section", async () => {
         );
         writeFile(
             "task/task.md",
-            `# Task Registry
-
-## Tasks
-
-| ID | Title | Status | Priority | Owner | Dependencies | File |
-|----|------|--------|----------|-------|--------------|------|
-`,
+            minimalTaskRegistryMarkdown(),
         );
         writeFile(".aidw/meta.json", JSON.stringify({ version: 1 }, null, 4) + "\n");
         writeFile(".aidw/scan/last.json", JSON.stringify({ status: "not-run" }, null, 4) + "\n");
@@ -1112,6 +1101,63 @@ test("runtime protocol hardening normalizes, validates, serializes, and snapshot
         assert.equal(readBack.runtimeVersion, "1");
         assert.ok(String(readBack.contract.prompt).length <= 6000);
     });
+});
+
+test("runtime contract includes bounded rdl/runtime metadata when provided", async () => {
+    const contract = normalizeRuntimeContract({
+        runtimeVersion: "1",
+        repoRoot: "/repo",
+        task: null,
+        scan: { status: "fresh", plan: [] },
+        workset: { mode: "digest", files: [], summary: "", text: "" },
+        prompt: "ok",
+        risks: [],
+        nextActions: [],
+        executionState: null,
+        runtime: { writeEnabled: true, mode: "SAFE", modeConfig: { writePolicy: "read_only" } },
+        rdl: {
+            mode: "SAFE",
+            freshness: {
+                score: 72.2,
+                signals: Array.from({ length: 50 }, (_, i) => ({ id: `sig-${i}`, penalty: i })),
+                suggestedActions: Array.from({ length: 50 }, (_, i) => `do-${i}`),
+            },
+            shc: {
+                present: true,
+                complete: false,
+                bounded: true,
+                missingSections: Array.from({ length: 30 }, (_, i) => `S-${i}`),
+                incompleteSections: [],
+                overLimitSections: Array.from({ length: 30 }, (_, i) => ({ section: `O-${i}`, lineCount: i, charCount: i * 10 })),
+            },
+            design: {
+                present: true,
+                score: 55.9,
+                missingChecks: Array.from({ length: 30 }, (_, i) => `C-${i}`),
+                missingSections: Array.from({ length: 30 }, (_, i) => `MS-${i}`),
+                weakSections: Array.from({ length: 30 }, (_, i) => `WS-${i}`),
+                suggestedImprovements: Array.from({ length: 30 }, (_, i) => `IMP-${i}`),
+            },
+        },
+    });
+
+    assert.equal(Boolean(contract.runtime), true);
+    assert.equal(contract.runtime.writeEnabled, true);
+    assert.equal(contract.runtime.mode, "SAFE");
+    assert.equal(Object.hasOwn(contract.runtime, "modeConfig"), false);
+
+    assert.equal(Boolean(contract.rdl), true);
+    assert.equal(contract.rdl.mode, "SAFE");
+    assert.equal(contract.rdl.freshness.score, 72);
+    assert.ok(contract.rdl.freshness.signals.length <= 16);
+    assert.ok(contract.rdl.freshness.suggestedActions.length <= 12);
+    assert.ok(contract.rdl.shc.missingSections.length <= 16);
+    assert.ok(contract.rdl.shc.overLimitSections.length <= 12);
+    assert.ok(contract.rdl.design.missingChecks.length <= 20);
+    assert.ok(contract.rdl.design.suggestedImprovements.length <= 10);
+
+    const validation = validateRuntimeContract(contract);
+    assert.equal(validation.valid, true);
 });
 
 test("runtime snapshot CLI supports list/read/explain/diff and keeps outputs bounded", async () => {
@@ -2392,31 +2438,15 @@ old generated content
         const text = output.join("\n");
 
         assert.match(text, /Usage:\s*\n\s*repo-context-kit <command> \[options\]/);
-        assert.match(text, /Getting Started:/);
-        assert.match(text, /init\s+Copy workflow template/i);
-        assert.match(text, /scan\s+Update .*indexes/i);
-        assert.match(text, /auto --goal "<goal>"/);
-
-        assert.match(text, /Core Runtime:/);
-        assert.match(text, /runtime snapshot\s+Browse snapshots/i);
-        assert.match(text, /task\s+Create tasks/i);
-        assert.match(text, /context\s+Print bounded task context/i);
-        assert.match(text, /execute\s+Pause\/confirm flow/i);
-        assert.match(text, /gate\s+Confirmation gate/i);
-
-        assert.match(text, /Advanced Runtime:/);
-        assert.match(text, /learn\s+Derive lessons/i);
-        assert.match(text, /check\s+Enforce lessons-derived constraints/i);
-        assert.match(text, /decision\s+Explain recent runtime decisions/i);
-        assert.match(text, /budget\s+Show budget policy/i);
-        assert.match(text, /loop\s+Report loop signals/i);
-        assert.match(text, /github\s+GitHub helpers/i);
-        assert.match(text, /ui\s+Local web console/i);
-
-        assert.match(text, /--dry-run/);
-        assert.match(text, /--plan/);
-        assert.match(text, /--check/);
-        assert.match(text, /REPO_CONTEXT_KIT_BUDGET/);
+        assert.match(text, /AI Development Journey:/);
+        assert.match(text, /init\s+Install the repo workflow files/i);
+        assert.match(text, /scan\s+Build or refresh the repository map/i);
+        assert.match(text, /task new "\.\.\."/);
+        assert.match(text, /task from-doc <path>/);
+        assert.match(text, /context next/);
+        assert.match(text, /task prompt <taskId>/);
+        assert.match(text, /--help --advanced/);
+        assert.doesNotMatch(text, /gate|execute|runtime snapshot|hygiene|bootstrap|decision|budget|learn|check|github|MCP write/i);
     });
 
     await t.test("doc loader enforces bounded read and repoRoot safety", async () => {
@@ -3613,27 +3643,23 @@ Cleanup after PR.
     await t.test("README highlights the primary workflow and moves other commands to advanced/internal", async () => {
         const readme = fs.readFileSync(path.resolve(originalCwd, "README.md"), "utf-8");
 
-        assert.match(readme, /Bounded AI Development Runtime for AI Coding Tools/);
-        assert.match(
-            readme,
-            /repo-context-kit helps AI coding tools work inside controlled, inspectable, replayable development workflows\./,
-        );
-        assert.match(readme, /## Quick Start/);
+        assert.match(readme, /safe AI development runtime/i);
+        assert.match(readme, /maps your repo, prepares focused AI context, and keeps work reviewable/i);
+        assert.match(readme, /## Start/);
         assert.match(readme, /npx repo-context-kit init/);
         assert.match(readme, /npx repo-context-kit scan/);
-        assert.match(readme, /npx repo-context-kit auto --goal "Add auth"/);
-        assert.match(readme, /## Why/);
-        assert.match(readme, /Context explosion/);
-        assert.match(readme, /Bounded context selection/);
-        assert.match(readme, /## Workflow/);
-        assert.match(readme, /goal → task → workset → runtime contract → risks → snapshots → explainability/);
-        assert.match(readme, /## Safety Boundaries/);
-        assert.match(readme, /does NOT auto-edit source code/);
-        assert.match(readme, /## Runtime Architecture/);
+        assert.match(readme, /npx repo-context-kit task new "Describe the work"/);
+        assert.match(readme, /npx repo-context-kit task prompt T-001/);
+        assert.match(readme, /## The Workflow/);
+        assert.match(readme, /Map the repo -> Define the work -> Prepare AI context -> Make changes -> Verify and review/);
+        assert.match(readme, /## Safety Defaults/);
+        assert.match(readme, /No autonomous source edits/);
+        assert.match(readme, /## Runtime Controls/);
+        assert.match(readme, /--help --advanced/);
+        assert.match(readme, /## Infrastructure/);
         assert.match(readme, /\[docs\/runtime-architecture\.md\]/);
-        assert.match(readme, /## MCP Runtime Interface/);
+        assert.match(readme, /## MCP Integration/);
     });
-
     await t.test("ui server serves static site and lists managed files", async () => {
         await withTempProject(async () => {
             await withMutedConsole(() => runInit());

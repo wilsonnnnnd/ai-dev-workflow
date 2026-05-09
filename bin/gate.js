@@ -8,24 +8,23 @@ import {
 } from "../src/gate/state.js";
 import { runTaskTestThroughGate } from "../src/gate/run-test.js";
 import { appendLoopEvent } from "../src/loop/store.js";
+import { emitJson, getArgValue, getFlag, pickCommand, stripFlag } from "./_cli-utils.js";
 
 function printGateStatus(state) {
     const active = state.active;
     const hasActive = Boolean(active?.taskConfirmed);
     console.log([
-        "# Confirmation Gate",
+        "# Runtime Approval",
         "",
-        `- protocol: ${state.protocol}`,
-        `- taskId: ${active?.taskId ?? "-"}`,
-        `- expiresAt: ${active?.expiresAt ?? "-"}`,
-        `- taskConfirmed: ${hasActive ? "true" : "false"}`,
-        `- testsConfirmed: ${active?.testsConfirmed ? "true" : "false"}`,
-        `- updatedAt: ${state.updatedAt ?? "-"}`,
+        `- task: ${active?.taskId ?? "none"}`,
+        `- scope approved: ${hasActive ? "yes" : "no"}`,
+        `- tests approved: ${active?.testsConfirmed ? "yes" : "no"}`,
+        `- expires: ${active?.expiresAt ?? "-"}`,
         "",
-        "## Effective Gating",
+        "## What This Allows",
         "",
-        `- allow_file_edits: ${hasActive ? "true" : "false"}`,
-        `- allow_commands: ${active?.testsConfirmed ? "true" : "false"}`,
+        `- file edits: ${hasActive ? "approved" : "blocked"}`,
+        `- test command: ${active?.testsConfirmed ? "approved" : "blocked"}`,
     ].join("\n"));
 }
 
@@ -39,22 +38,10 @@ function usage() {
 `);
 }
 
-function emitJson(body) {
-    console.log(JSON.stringify(body));
-}
-
-function getFlagValue(args, flag) {
-    const index = args.indexOf(flag);
-    if (index === -1) {
-        return null;
-    }
-    return args[index + 1] ?? null;
-}
-
 export async function runGate(args = []) {
-    const json = args.includes("--json");
-    const filteredArgs = args.filter((arg) => arg !== "--json");
-    const subcommand = filteredArgs[0];
+    const json = getFlag(args, "--json");
+    const filteredArgs = stripFlag(args, "--json");
+    const subcommand = pickCommand(filteredArgs, null);
 
     if (!subcommand || subcommand === "help" || subcommand === "--help") {
         usage();
@@ -86,7 +73,7 @@ export async function runGate(args = []) {
     if (subcommand === "confirm") {
         const target = filteredArgs[1];
         const taskId = filteredArgs[2];
-        const ttlMinutes = getFlagValue(filteredArgs, "--ttl-minutes");
+        const ttlMinutes = getArgValue(filteredArgs, "--ttl-minutes");
 
         if (target === "task") {
             const result = confirmTask(taskId, { ttlMinutes });
@@ -126,9 +113,14 @@ export async function runGate(args = []) {
                 });
                 return;
             }
-            console.log(`OK Task confirmed: ${path.relative(process.cwd(), result.filePath).replaceAll("\\", "/")}`);
+            console.log("Approval Recorded");
+            console.log("");
+            console.log(`Task approved: ${result.state?.active?.taskId ?? taskId}`);
             console.log(`Token: ${result.token}`);
-            printGateStatus(result.state);
+            console.log("");
+            console.log("Next:");
+            console.log(`- Prepare AI prompt: repo-context-kit task prompt ${result.state?.active?.taskId ?? taskId}`);
+            console.log(`- Approve tests when ready: repo-context-kit gate confirm tests ${result.state?.active?.taskId ?? taskId}`);
             return;
         }
 
@@ -170,8 +162,12 @@ export async function runGate(args = []) {
                 });
                 return;
             }
-            console.log(`OK Tests confirmed: ${path.relative(process.cwd(), result.filePath).replaceAll("\\", "/")}`);
-            printGateStatus(result.state);
+            console.log("Test Approval Recorded");
+            console.log("");
+            console.log(`Task: ${result.state?.active?.taskId ?? taskId}`);
+            console.log("");
+            console.log("Next:");
+            console.log(`- Run tests: repo-context-kit gate run-test ${result.state?.active?.taskId ?? taskId} --token <token>`);
             return;
         }
 
@@ -190,7 +186,7 @@ export async function runGate(args = []) {
             return;
         }
 
-        const token = getFlagValue(filteredArgs, "--token");
+        const token = getArgValue(filteredArgs, "--token");
         if (!token) {
             const error = "Missing gate token. Usage: repo-context-kit gate run-test <taskId> --token <token>";
             if (json) {

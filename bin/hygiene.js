@@ -6,6 +6,7 @@ import { serializeJson } from "../src/runtime/serialize.js";
 import { hygieneScan } from "../src/hygiene/scan.js";
 import { hygienePlan } from "../src/hygiene/plan.js";
 import { applyHygienePlan } from "../src/hygiene/apply.js";
+import { getArgValue, getFlag, pickCommand, stripFlag } from "./_cli-utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,22 +19,10 @@ function usage() {
 `);
 }
 
-function getFlag(args, flag) {
-    return args.includes(flag);
-}
-
-function getArgValue(args, name) {
-    const index = args.indexOf(name);
-    if (index === -1) return null;
-    const value = args[index + 1];
-    if (!value || value.startsWith("--")) return null;
-    return value;
-}
-
 export async function runHygiene(args = []) {
     const json = getFlag(args, "--json");
-    const filteredArgs = args.filter((arg) => arg !== "--json");
-    const sub = filteredArgs[0];
+    const filteredArgs = stripFlag(args, "--json");
+    const sub = pickCommand(filteredArgs, null);
     if (!sub || sub === "help" || sub === "--help") {
         usage();
         return;
@@ -122,4 +111,3 @@ export async function runHygiene(args = []) {
     usage();
     process.exitCode = 1;
 }
-

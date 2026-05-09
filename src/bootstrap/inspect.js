@@ -1,35 +1,10 @@
-import fs from "node:fs";
 import { serializeJson } from "../runtime/serialize.js";
+import { pickPlanObject, readJsonPayload } from "../runtime/json-payload.js";
 import { BOOTSTRAP_VERSION } from "./constants.js";
 
-function isPlainObject(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    const proto = Object.getPrototypeOf(value);
-    return proto === Object.prototype || proto === null;
-}
-
-function readJsonFromSource(source) {
-    if (source && typeof source === "object") {
-        return source;
-    }
-    if (typeof source === "string" && source.trim() === "-") {
-        const raw = fs.readFileSync(0, "utf-8");
-        return JSON.parse(raw);
-    }
-    const filePath = String(source ?? "").trim();
-    if (!filePath) {
-        throw new Error("plan path is required");
-    }
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw);
-}
-
 export function inspectBootstrapPlan({ planSource } = {}) {
-    const payload = readJsonFromSource(planSource);
-    const plan = isPlainObject(payload?.plan) ? payload.plan : payload;
-    if (!isPlainObject(plan)) {
-        throw new Error("plan must be an object");
-    }
+    const payload = readJsonPayload(planSource, { missingPathError: "plan path is required" });
+    const plan = pickPlanObject(payload);
     if (plan.bootstrapVersion !== BOOTSTRAP_VERSION) {
         throw new Error("unsupported bootstrap plan version");
     }

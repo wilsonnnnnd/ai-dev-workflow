@@ -73,6 +73,119 @@ function normalizePlanningSource(planningSource) {
     };
 }
 
+function clampString(value, maxChars) {
+    const text = String(value ?? "");
+    const limit = Number.isFinite(Number(maxChars)) ? Number(maxChars) : 0;
+    if (limit <= 0) return "";
+    if (text.length <= limit) return text;
+    return `${text.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function clampArray(value, maxItems) {
+    const list = Array.isArray(value) ? value : [];
+    const limit = Number.isFinite(Number(maxItems)) ? Math.max(0, Number(maxItems)) : 0;
+    return list.slice(0, limit);
+}
+
+function normalizeMode(value) {
+    const raw = String(value ?? "").trim().toUpperCase();
+    if (raw === "SAFE" || raw === "STANDARD" || raw === "REVIEW" || raw === "EXPERIMENTAL") return raw;
+    return null;
+}
+
+function normalizeRuntime(runtime) {
+    if (!runtime || typeof runtime !== "object") return null;
+    const out = {
+        writeEnabled: Boolean(runtime.writeEnabled),
+    };
+    const mode = normalizeMode(runtime.mode);
+    if (mode) out.mode = mode;
+    return out;
+}
+
+function normalizeFreshness(freshness) {
+    if (!freshness || typeof freshness !== "object") return null;
+    const scoreRaw = Number(freshness.score);
+    const score = Number.isFinite(scoreRaw) ? Math.max(0, Math.min(100, Math.round(scoreRaw))) : null;
+    const signalsRaw = Array.isArray(freshness.signals) ? freshness.signals : [];
+    const signals = clampArray(signalsRaw, 16)
+        .map((s) => {
+            if (!s || typeof s !== "object") return null;
+            const id = asString(s.id, "").slice(0, 80);
+            const penaltyRaw = Number(s.penalty);
+            const penalty = Number.isFinite(penaltyRaw) ? Math.max(0, Math.round(penaltyRaw)) : null;
+            if (!id) return null;
+            return penalty == null ? { id } : { id, penalty };
+        })
+        .filter(Boolean);
+    const suggestedActions = clampArray(asArrayOfStrings(freshness.suggestedActions), 12).map((s) => clampString(s, 240));
+    const out = {};
+    if (score != null) out.score = score;
+    if (signals.length) out.signals = signals;
+    if (suggestedActions.length) out.suggestedActions = suggestedActions;
+    return Object.keys(out).length ? out : null;
+}
+
+function normalizeShcStatus(shc) {
+    if (!shc || typeof shc !== "object") return null;
+    const present = shc.present === true;
+    const complete = shc.complete === true;
+    const bounded = shc.bounded === true;
+    const missingSections = clampArray(asArrayOfStrings(shc.missingSections), 16).map((s) => clampString(s, 120));
+    const incompleteSections = clampArray(asArrayOfStrings(shc.incompleteSections), 16).map((s) => clampString(s, 120));
+    const overLimitSectionsRaw = Array.isArray(shc.overLimitSections) ? shc.overLimitSections : [];
+    const overLimitSections = clampArray(overLimitSectionsRaw, 12)
+        .map((x) => {
+            if (!x || typeof x !== "object") return null;
+            const section = asString(x.section, "").slice(0, 120);
+            const lineCount = Number.isFinite(Number(x.lineCount)) ? Number(x.lineCount) : null;
+            const charCount = Number.isFinite(Number(x.charCount)) ? Number(x.charCount) : null;
+            if (!section) return null;
+            const out = { section };
+            if (lineCount != null) out.lineCount = lineCount;
+            if (charCount != null) out.charCount = charCount;
+            return out;
+        })
+        .filter(Boolean);
+    const out = { present, complete, bounded };
+    if (missingSections.length) out.missingSections = missingSections;
+    if (incompleteSections.length) out.incompleteSections = incompleteSections;
+    if (overLimitSections.length) out.overLimitSections = overLimitSections;
+    return out;
+}
+
+function normalizeDesignStatus(design) {
+    if (!design || typeof design !== "object") return null;
+    const present = design.present === true;
+    const scoreRaw = Number(design.score);
+    const score = Number.isFinite(scoreRaw) ? Math.max(0, Math.min(100, Math.round(scoreRaw))) : null;
+    const missingSections = clampArray(asArrayOfStrings(design.missingSections), 16).map((s) => clampString(s, 120));
+    const weakSections = clampArray(asArrayOfStrings(design.weakSections), 16).map((s) => clampString(s, 120));
+    const missingChecks = clampArray(asArrayOfStrings(design.missingChecks), 20).map((s) => clampString(s, 120));
+    const suggestedImprovements = clampArray(asArrayOfStrings(design.suggestedImprovements), 10).map((s) => clampString(s, 240));
+    const out = { present };
+    if (score != null) out.score = score;
+    if (missingSections.length) out.missingSections = missingSections;
+    if (weakSections.length) out.weakSections = weakSections;
+    if (missingChecks.length) out.missingChecks = missingChecks;
+    if (suggestedImprovements.length) out.suggestedImprovements = suggestedImprovements;
+    return out;
+}
+
+function normalizeRdl(rdl) {
+    if (!rdl || typeof rdl !== "object") return null;
+    const mode = normalizeMode(rdl.mode);
+    const freshness = normalizeFreshness(rdl.freshness);
+    const shc = normalizeShcStatus(rdl.shc);
+    const design = normalizeDesignStatus(rdl.design);
+    const out = {};
+    if (mode) out.mode = mode;
+    if (freshness) out.freshness = freshness;
+    if (shc) out.shc = shc;
+    if (design) out.design = design;
+    return Object.keys(out).length ? out : null;
+}
+
 function normalizeRisks(risks) {
     if (risks == null) return [];
     const list = Array.isArray(risks) ? risks : [];
@@ -107,6 +220,8 @@ export function normalizeRuntimeContract(contract) {
     const risks = normalizeRisks(raw.risks);
     const nextActions = asArrayOfStrings(raw.nextActions).sort((a, b) => a.localeCompare(b));
     const executionState = normalizeExecutionState(raw.executionState);
+    const runtime = Object.hasOwn(raw, "runtime") ? normalizeRuntime(raw.runtime) : undefined;
+    const rdl = Object.hasOwn(raw, "rdl") ? normalizeRdl(raw.rdl) : undefined;
 
     const known = { runtimeVersion, repoRoot };
     if (planningSource !== undefined) {
@@ -119,6 +234,12 @@ export function normalizeRuntimeContract(contract) {
     known.risks = risks;
     known.nextActions = nextActions;
     known.executionState = executionState;
+    if (runtime !== undefined) {
+        known.runtime = runtime;
+    }
+    if (rdl !== undefined) {
+        known.rdl = rdl;
+    }
 
     const extras = {};
     for (const key of Object.keys(raw)) {

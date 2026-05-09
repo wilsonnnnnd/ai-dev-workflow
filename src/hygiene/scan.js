@@ -5,14 +5,7 @@ import { withRepoRoot } from "../runtime/root-context.js";
 import { parseTaskRegistry } from "../scan/task-registry.js";
 import { getTaskFileMetadata } from "../scan/task-files.js";
 import { HYGIENE_LIMITS, HYGIENE_PATHS } from "./constants.js";
-
-function uniqSorted(values) {
-    return [...new Set(values.map((v) => String(v ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-
-function toRel(repoRoot, fullPath) {
-    return path.relative(repoRoot, fullPath).replaceAll("\\", "/");
-}
+import { toRel, uniqSorted } from "./utils.js";
 
 function statSafe(fullPath) {
     try {

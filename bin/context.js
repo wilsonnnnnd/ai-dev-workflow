@@ -683,7 +683,7 @@ function buildBrief(options = {}) {
 
 function buildTaskContext(task, registry, level, limits, warnings, options = {}) {
     const includedSources = registry?.exists ? [TASK_REGISTRY_PATH] : [];
-    const parts = [`# ${level === "next-task" ? "Next Task Context" : "Task Context"}`];
+    const parts = [`# ${level === "next-task" ? `Next Work: ${task.id} ${task.title}` : "Task Context"}`];
     const digest = Boolean(options.digest);
     const rawLoop = Boolean(options.rawLoop);
     const loopEvents = listRecentLoopEvents({ limit: digest ? 3 : 6, taskId: task.id });
@@ -745,7 +745,7 @@ function buildNextTask(options = {}) {
     let digest = Boolean(options.digest);
 
     if (!registry.exists) {
-        return renderBounded(["# Next Task Context", "No task registry is available."], {
+        return renderBounded(["# Next Work", "No task registry is available.", 'Create one: repo-context-kit task new "Describe the work"'], {
             level: "next-task",
             taskId: null,
             includedSources: [],
@@ -757,7 +757,14 @@ function buildNextTask(options = {}) {
 
     const task = selectNextTask(registry);
     if (!task) {
-        return renderBounded(["# Next Task Context", "No available task found. All tasks are done, blocked, cancelled, or waiting on unfinished dependencies."], {
+        return renderBounded([
+            "# Next Work",
+            "No ready task found.",
+            "",
+            "You can:",
+            '- Create one: repo-context-kit task new "Describe the work"',
+            "- Generate from a doc: repo-context-kit task from-doc docs/spec.md",
+        ], {
             level: "next-task",
             taskId: null,
             includedSources: [TASK_REGISTRY_PATH],
@@ -815,6 +822,13 @@ function buildNextTask(options = {}) {
     };
 
     const taskContext = buildTaskContext(task, registry, "next-task", LIMITS["next-task"], warnings, effectiveOptions);
+    taskContext.parts.splice(1, 0, [
+        "Ready for AI context preparation.",
+        "",
+        "Next:",
+        `- Generate AI prompt: repo-context-kit task prompt ${task.id}`,
+        `- View focused context: repo-context-kit context for ${task.id}`,
+    ].join("\n"));
 
     return renderBounded(taskContext.parts, {
         level: "next-task",
@@ -1160,6 +1174,28 @@ export async function runContext(args = []) {
     const noCache = args.includes("--no-cache");
     let output;
 
+    if (subcommand === "help" || args.includes("--help")) {
+        console.log("Usage:");
+        console.log("  repo-context-kit context brief");
+        console.log("  repo-context-kit context next");
+        console.log("  repo-context-kit context for <taskId> [--compact|--digest] [--deep]");
+        console.log("");
+        console.log("Compatibility:");
+        console.log("  context next forwards to context next-task");
+        console.log("  context for <taskId> forwards to context workset <taskId>");
+        console.log("  context next-task and context workset remain available.");
+        console.log("");
+        console.log("Options:");
+        console.log("  --compact    Prefer bounded digest output (same as default)");
+        console.log("  --full       Disable digest output");
+        console.log("  --manifest   Include full context manifest footer");
+        console.log("  --verbose    Print all warnings instead of summarizing");
+        console.log("  --budget     Budget policy: off | auto | full (also via REPO_CONTEXT_KIT_BUDGET)");
+        return {
+            output: null,
+        };
+    }
+
     if (subcommand === "brief") {
         const loopResult = budget === "auto" || budget === "full"
             ? evaluateContextLoop({ taskId: null })
@@ -1216,7 +1252,7 @@ export async function runContext(args = []) {
                 writeBriefDigestCache(output);
             }
         }
-    } else if (subcommand === "next-task") {
+    } else if (subcommand === "next-task" || subcommand === "next") {
         output = buildNextTask({
             digest,
             manifest,
@@ -1225,8 +1261,8 @@ export async function runContext(args = []) {
             budget,
             digestLocked: digestFlag || full,
         });
-    } else if (subcommand === "workset") {
-        const worksetIndex = args.indexOf("workset");
+    } else if (subcommand === "workset" || subcommand === "for") {
+        const worksetIndex = args.indexOf(subcommand);
         const taskId = args.slice(worksetIndex + 1).find((arg) => !arg.startsWith("--"));
         if (!taskId) {
             process.exitCode = 1;
@@ -1250,6 +1286,8 @@ export async function runContext(args = []) {
         console.error("Unknown context command.");
         console.log("Usage:");
         console.log("  repo-context-kit context brief");
+        console.log("  repo-context-kit context next");
+        console.log("  repo-context-kit context for <taskId> [--compact|--digest] [--deep]");
         console.log("  repo-context-kit context next-task");
         console.log("  repo-context-kit context workset <taskId> [--compact|--digest] [--deep]");
         console.log("Options:");

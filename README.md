@@ -2,191 +2,157 @@
 
 [![npm version](https://img.shields.io/npm/v/repo-context-kit)](https://www.npmjs.com/package/repo-context-kit)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-stdio-blue)](#mcp-runtime-interface)
 
-Bounded AI Development Runtime for AI Coding Tools
+A safe AI development runtime that maps your repo, prepares focused AI context, and keeps work reviewable.
 
-repo-context-kit helps AI coding tools work inside controlled, inspectable, replayable development workflows.
+## Start
 
-- Bounded context (worksets, budgets, caps)
-- Deterministic workflows (tasks, confirmations, stable outputs)
-- Runtime contracts (validated JSON payloads)
-- Risk intelligence (structured risks + explanations)
-- Snapshot observability (history, diff, inspection)
-
-## Quick Start
-
-Run these from the root of the repo you want to work on:
+Run these from the repository you want to work on:
 
 ```bash
 npx repo-context-kit init
 npx repo-context-kit scan
-npx repo-context-kit auto --goal "Add auth"
+npx repo-context-kit task new "Describe the work"
+npx repo-context-kit task from-doc docs/spec.md
+npx repo-context-kit context next
+npx repo-context-kit context for T-001
+npx repo-context-kit task prompt T-001
+npx repo-context-kit task pr T-001
+npx repo-context-kit status
 ```
 
-What happens:
+## The Workflow
 
-- `init`: writes workflow scaffolding you review and commit.
-- `scan`: generates `.aidw/*` indexes so AI tools have an accurate project map.
-- `auto`: turns a goal into a task + bounded workset + runtime contract + risks + next actions (no source edits).
+Map the repo -> Define the work -> Prepare AI context -> Make changes -> Verify and review
 
-## Why
+| Step | Command |
+|---|---|
+| Map repository | `repo-context-kit init` then `repo-context-kit scan` |
+| Define work | `repo-context-kit task new "Describe the work"` |
+| Prepare AI context | `repo-context-kit task prompt T-001` |
+| See what is ready | `repo-context-kit context next` |
+| Prepare review text | `repo-context-kit task pr T-001` |
 
-Typical AI coding tools struggle with:
+That is the recommended path. Advanced controls stay available, but you do not need to learn them first.
 
-- Context explosion and token overload
-- Hallucinated edits without clear scope
-- Uncontrolled execution paths
-- Non-repeatable sessions
-- Hidden reasoning and hard-to-audit decisions
+## Friendly Aliases
 
-repo-context-kit is designed to solve those with:
+These commands are the default names shown in help. They keep older commands working while making the common path easier to remember:
 
-- Bounded context selection (worksets, caps, safe indexes)
-- Human-controlled execution (confirmation gates)
-- Deterministic, inspectable runtime outputs (contracts, snapshots)
-- Explicit risk intelligence (structured risks + evidence)
+| Command | Forwards to |
+|---|---|
+| `repo-context-kit context next` | `repo-context-kit context next-task` |
+| `repo-context-kit context for <taskId>` | `repo-context-kit context workset <taskId>` |
+| `repo-context-kit task from-doc <path>` | `repo-context-kit task generate --from-doc <path>` |
+| `repo-context-kit task plan --goal "..."` | `repo-context-kit auto --goal "..."` |
+| `repo-context-kit status` | A lightweight project status summary |
 
-## Workflow
+## What It Does
 
-Minimal mental model:
+repo-context-kit gives AI coding tools a bounded way to work in an existing repo:
 
-goal → task → workset → runtime contract → risks → snapshots → explainability
+- It builds a current project map before planning.
+- It turns work into explicit task files.
+- It prepares focused context instead of dumping the whole repo.
+- It keeps safety boundaries and verification steps visible.
+- It records enough runtime state for review and debugging.
 
-Core principle: the AI does not own autonomous execution rights. Humans stay in control of edits, tests, commits, and PRs.
+It does not auto-edit source code, run arbitrary commands, commit, push, or open PRs without explicit user action.
 
-## Doc-Driven Runtime Planning
+## Common Workflows
 
-If you already have a design doc or PRD (the source of truth), you can enter the bounded workflow deterministically (no LLM parsing):
+Create a task manually:
 
 ```bash
-repo-context-kit auto --from-doc docs/product.md
+repo-context-kit task new "Add password reset"
+repo-context-kit task prompt T-001
 ```
 
-Or generate task files directly from the document:
+Work from a design doc:
 
 ```bash
-repo-context-kit task generate --from-doc docs/product.md --dry-run --json
-repo-context-kit task generate --from-doc docs/product.md
+repo-context-kit task from-doc docs/password-reset.md
+repo-context-kit context next
+repo-context-kit task prompt T-001
 ```
 
-This is doc-driven bounded planning. It does not auto-edit code, run tests, commit, or open PRs.
+Preview the repository map before refreshing it:
 
-## Runtime Architecture
+```bash
+repo-context-kit scan --plan
+repo-context-kit scan
+```
 
-See [docs/runtime-architecture.md](./docs/runtime-architecture.md) for the full diagram and layer breakdown.
+Prepare review output:
 
-High-level layers:
+```bash
+repo-context-kit task checklist T-001
+repo-context-kit task pr T-001
+```
 
-Repo
-↓
-Scan / Index
-↓
-Task Runtime
-↓
-Workset Runtime
-↓
-Runtime Contract
-↓
-Risk Intelligence
-↓
-Snapshots / Explainability
-↓
-MCP Runtime Interface
+## Safety Defaults
 
-## Safety Boundaries
+The default workflow is intentionally conservative:
 
-repo-context-kit:
+- No autonomous source edits.
+- No arbitrary shell execution.
+- No hidden test runs.
+- No generated index files edited by hand.
+- No advanced runtime writes without explicit confirmation.
 
-- does NOT auto-edit source code
-- does NOT auto-run arbitrary commands
-- does NOT bypass confirmation gates
-- does NOT execute autonomous coding loops
-- does NOT run background agents
-- does NOT self-heal repositories
+The normal user surface is small: `init`, `scan`, `task`, and `context`.
 
-It provides bounded, inspectable scaffolding. You decide what actually runs.
+## Runtime Controls
 
-## MCP Runtime Interface
+The runtime has a control plane for confirmations, execution state, context budgeting, learned checks, and decision explanations. These commands are useful when debugging or integrating with tools, but they are not required for day-one usage.
 
-This project ships an MCP stdio server as a runtime interface for bounded AI development workflows.
+```bash
+repo-context-kit gate status
+repo-context-kit execute status
+repo-context-kit loop report
+repo-context-kit budget show
+repo-context-kit decision explain
+repo-context-kit learn ingest --dry-run
+repo-context-kit check --explain
+```
 
-- Deterministic: tools map to the existing CLI behavior.
-- Inspectable: outputs are bounded, structured, and validated.
-- Replayable: runtime snapshots support historical inspection and diff.
-- Bounded: read-only by default; write/test tools require explicit opt-in flags.
+Use `repo-context-kit --help --advanced` to see the full command surface.
 
-Run (read-only):
+## Infrastructure
+
+These flows are for repository setup, maintenance, audit, and integrations:
+
+```bash
+repo-context-kit bootstrap plan --from-doc docs/new-project.md
+repo-context-kit hygiene scan
+repo-context-kit runtime snapshot list
+repo-context-kit github auth status
+repo-context-kit ui
+```
+
+They remain hidden from the primary path because they are admin or maintenance tools, not the default AI development journey.
+
+## MCP Integration
+
+repo-context-kit also ships an MCP stdio server for AI tools:
 
 ```bash
 repo-context-kit-mcp --root /path/to/repo
 ```
 
-Enable write tools:
+It is read-only by default. Write and test tools require explicit opt-in flags and still use runtime gates:
 
 ```bash
 repo-context-kit-mcp --root /path/to/repo --enable-write
-```
-
-Enable gated test execution (still requires a valid gate token and allowlisted commands):
-
-```bash
 repo-context-kit-mcp --root /path/to/repo --enable-write --enable-tests
 ```
 
-## Runtime Snapshots
-
-CLI snapshot UX (bounded, read-only inspection):
-
-```bash
-repo-context-kit runtime snapshot list
-repo-context-kit runtime snapshot read <snapshotId>
-repo-context-kit runtime snapshot explain <snapshotId>
-repo-context-kit runtime snapshot diff <from> <to>
-repo-context-kit runtime snapshot retention
-```
-
-MCP snapshot APIs (read-only):
-
-- `rck.runtime.snapshot.list`
-- `rck.runtime.snapshot.read`
-- `rck.runtime.snapshot.diff`
-- `rck.runtime.explain`
-
-## Features (Organized)
-
-### Core Workflow
-
-- `init`
-- `scan`
-- `auto`
-- `runtime snapshot`
-
-### Task Runtime
-
-- `task` (task files + prompts/checklists/PR text)
-- `context` (bounded worksets)
-- `execute` (pause/confirm flow)
-- `gate` (allowlisted, token-gated test execution)
-
-### Runtime Intelligence
-
-- `rck.runtime.risks` / risk sections in runtime contracts
-- `learn` / `check` (lessons-derived constraints)
-- `decision explain` (why the runtime made a decision)
-- snapshots + explainability
-
-### MCP Runtime APIs
-
-- `rck.runtime.plan`
-- `rck.runtime.inspect`
-- `rck.runtime.risks`
-- `rck.runtime.validate`
-- `rck.runtime.snapshot.*`
-
 ## Reference
 
-For a scenario-based runbook (commands, workflows, and troubleshooting), see [OPERATIONS.md](./OPERATIONS.md).
+For operational details, troubleshooting, and the full runtime model, see:
+
+- [OPERATIONS.md](./OPERATIONS.md)
+- [docs/runtime-architecture.md](./docs/runtime-architecture.md)
 
 ## License
 

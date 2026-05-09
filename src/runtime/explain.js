@@ -1,22 +1,11 @@
 import { normalizeRuntimeContract } from "./normalize.js";
 import { validateRuntimeContract } from "./runtime-schema.js";
 import { applySnapshotRetentionPolicy } from "./retention.js";
+import { computeRiskSeveritySummary } from "./risk-utils.js";
 
 function formatList(items) {
     if (!items || items.length === 0) return "- None";
     return items.map((item) => `- ${item}`).join("\n");
-}
-
-function computeRiskSeveritySummary(risks) {
-    const counts = { blocker: 0, warning: 0, info: 0 };
-    if (!Array.isArray(risks)) return counts;
-    for (const risk of risks) {
-        const severity = String(risk?.severity ?? "").trim().toLowerCase();
-        if (severity === "blocker") counts.blocker += 1;
-        else if (severity === "warning") counts.warning += 1;
-        else if (severity === "info") counts.info += 1;
-    }
-    return counts;
 }
 
 function renderHealthSummary({ scanStatus, riskSummary, validation }) {

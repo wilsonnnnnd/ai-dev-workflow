@@ -6,6 +6,7 @@ import { inspectBootstrapPlan } from "../src/bootstrap/inspect.js";
 import { explainBootstrapPlan } from "../src/bootstrap/explain.js";
 import { diffBootstrapPlan } from "../src/bootstrap/diff.js";
 import { serializeJson } from "../src/runtime/serialize.js";
+import { getArgValue, getFlag, pickCommand, stripFlag } from "./_cli-utils.js";
 
 function usage() {
     console.log(`Usage:
@@ -17,18 +18,6 @@ function usage() {
 `);
 }
 
-function getArgValue(args, name) {
-    const index = args.indexOf(name);
-    if (index === -1) return null;
-    const value = args[index + 1];
-    if (!value || value.startsWith("--")) return null;
-    return value;
-}
-
-function hasFlag(args, name) {
-    return args.includes(name);
-}
-
 function writePlanFile(plan, planPath) {
     const filePath = String(planPath ?? "").trim();
     if (!filePath) return null;
@@ -37,23 +26,24 @@ function writePlanFile(plan, planPath) {
 }
 
 export async function runBootstrap(args = []) {
-    const subcommand = args.find((arg) => !arg.startsWith("--")) ?? "help";
-    const json = hasFlag(args, "--json");
-    if (subcommand === "help" || hasFlag(args, "--help")) {
+    const json = getFlag(args, "--json");
+    const filteredArgs = stripFlag(args, "--json");
+    const subcommand = pickCommand(filteredArgs, "help");
+    if (subcommand === "help" || getFlag(args, "--help")) {
         usage();
         return { output: null };
     }
 
     if (subcommand === "plan") {
-        const fromDoc = getArgValue(args, "--from-doc");
+        const fromDoc = getArgValue(filteredArgs, "--from-doc");
         if (!fromDoc) {
             usage();
             process.exitCode = 1;
             return { output: null };
         }
-        const writeMode = getArgValue(args, "--write-mode") ?? "create-only";
-        const explain = hasFlag(args, "--explain");
-        const outPath = getArgValue(args, "--out");
+        const writeMode = getArgValue(filteredArgs, "--write-mode") ?? "create-only";
+        const explain = getFlag(filteredArgs, "--explain");
+        const outPath = getArgValue(filteredArgs, "--out");
         const result = planBootstrapRuntime({ repoRoot: process.cwd(), fromDoc, writeMode });
         if (outPath) {
             writePlanFile({ ...result, plan: result.plan, contract: result.contract }, outPath);
@@ -120,7 +110,7 @@ export async function runBootstrap(args = []) {
     }
 
     if (subcommand === "inspect") {
-        const fromPlan = getArgValue(args, "--from-plan") ?? getArgValue(args, "--plan");
+        const fromPlan = getArgValue(filteredArgs, "--from-plan") ?? getArgValue(filteredArgs, "--plan");
         if (!fromPlan) {
             usage();
             process.exitCode = 1;
@@ -146,7 +136,7 @@ export async function runBootstrap(args = []) {
     }
 
     if (subcommand === "explain") {
-        const fromPlan = getArgValue(args, "--from-plan") ?? getArgValue(args, "--plan");
+        const fromPlan = getArgValue(filteredArgs, "--from-plan") ?? getArgValue(filteredArgs, "--plan");
         if (!fromPlan) {
             usage();
             process.exitCode = 1;
@@ -162,8 +152,8 @@ export async function runBootstrap(args = []) {
     }
 
     if (subcommand === "diff") {
-        const fromPlan = getArgValue(args, "--from-plan") ?? getArgValue(args, "--plan");
-        const against = getArgValue(args, "--against") ?? "disk";
+        const fromPlan = getArgValue(filteredArgs, "--from-plan") ?? getArgValue(filteredArgs, "--plan");
+        const against = getArgValue(filteredArgs, "--against") ?? "disk";
         if (!fromPlan) {
             usage();
             process.exitCode = 1;
@@ -179,9 +169,9 @@ export async function runBootstrap(args = []) {
     }
 
     if (subcommand === "apply") {
-        const fromPlan = getArgValue(args, "--from-plan") ?? getArgValue(args, "--plan");
-        const confirm = getArgValue(args, "--confirm");
-        const enableWrite = hasFlag(args, "--enable-write");
+        const fromPlan = getArgValue(filteredArgs, "--from-plan") ?? getArgValue(filteredArgs, "--plan");
+        const confirm = getArgValue(filteredArgs, "--confirm");
+        const enableWrite = getFlag(filteredArgs, "--enable-write");
         if (!fromPlan || !confirm) {
             usage();
             process.exitCode = 1;
