@@ -4,6 +4,11 @@ import path from "node:path";
 const MAX_DOC_BYTES = 200 * 1024;
 const MAX_HEADINGS = 32;
 
+function realpathSyncSafe(filePath) {
+    const impl = typeof fs.realpathSync?.native === "function" ? fs.realpathSync.native : fs.realpathSync;
+    return impl(filePath);
+}
+
 function toPosixPath(value) {
     return String(value ?? "").split(path.sep).join("/");
 }
@@ -61,14 +66,21 @@ export function loadDesignDoc(docPath, { repoRoot } = {}) {
         error.code = "MISSING_ROOT";
         throw error;
     }
+    const rootAbsolute = path.resolve(root);
+    let rootReal = "";
+    try {
+        rootReal = realpathSyncSafe(rootAbsolute);
+    } catch {
+        rootReal = rootAbsolute;
+    }
     const input = String(docPath ?? "").trim();
     if (!input) {
         const error = new Error("path is required");
         error.code = "MISSING_PATH";
         throw error;
     }
-    const absolute = path.isAbsolute(input) ? path.resolve(input) : path.resolve(root, input);
-    if (!isPathInsideRoot(root, absolute)) {
+    const absolute = path.isAbsolute(input) ? path.resolve(input) : path.resolve(rootAbsolute, input);
+    if (!isPathInsideRoot(rootAbsolute, absolute)) {
         const error = new Error("Doc path escapes repoRoot");
         error.code = "PATH_ESCAPE";
         throw error;
@@ -84,12 +96,34 @@ export function loadDesignDoc(docPath, { repoRoot } = {}) {
         error.code = "UNSUPPORTED_DOC_TYPE";
         throw error;
     }
-    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
+    if (!fs.existsSync(absolute)) {
         const error = new Error("Doc file not found");
         error.code = "DOC_NOT_FOUND";
         throw error;
     }
-    const stat = fs.statSync(absolute);
+
+    let targetReal = "";
+    try {
+        targetReal = realpathSyncSafe(absolute);
+    } catch {
+        const error = new Error("Doc file not found");
+        error.code = "DOC_NOT_FOUND";
+        throw error;
+    }
+
+    if (!isPathInsideRoot(rootReal, targetReal)) {
+        const error = new Error("Doc path escapes repoRoot");
+        error.code = "PATH_ESCAPE";
+        throw error;
+    }
+
+    if (!fs.existsSync(targetReal) || !fs.statSync(targetReal).isFile()) {
+        const error = new Error("Doc file not found");
+        error.code = "DOC_NOT_FOUND";
+        throw error;
+    }
+
+    const stat = fs.statSync(targetReal);
     if (stat.size > MAX_DOC_BYTES) {
         const error = new Error("Doc file is too large");
         error.code = "DOC_TOO_LARGE";
@@ -97,7 +131,7 @@ export function loadDesignDoc(docPath, { repoRoot } = {}) {
         error.sizeBytes = stat.size;
         throw error;
     }
-    const buffer = fs.readFileSync(absolute);
+    const buffer = fs.readFileSync(targetReal);
     if (detectBinary(buffer)) {
         const error = new Error("Binary documents are not supported");
         error.code = "BINARY_DOC";
@@ -109,8 +143,8 @@ export function loadDesignDoc(docPath, { repoRoot } = {}) {
         error.code = "INVALID_UTF8";
         throw error;
     }
-    const relative = toPosixPath(path.relative(root, absolute));
-    const fallbackTitle = path.basename(absolute, ext);
+    const relative = toPosixPath(path.relative(rootAbsolute, absolute));
+    const fallbackTitle = path.basename(targetReal, ext);
     const title = parseMarkdownTitle(content, fallbackTitle);
     const headings = parseHeadings(content);
     const estimatedSections = headings.length;
@@ -125,4 +159,3 @@ export function loadDesignDoc(docPath, { repoRoot } = {}) {
         },
     };
 }
-

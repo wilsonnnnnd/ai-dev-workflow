@@ -949,6 +949,124 @@ test("gate confirm tests appends execution evidence", async () => {
     });
 });
 
+test("gate run-test enforces bounded task file paths and structured allowlist", async () => {
+    await withTempProject(async () => {
+        await withMutedConsole(() => runInit());
+
+        writeFile(
+            "package.json",
+            JSON.stringify(
+                {
+                    name: "gate-test-project",
+                    version: "0.0.0",
+                    type: "module",
+                    scripts: {
+                        test: "node -e \"process.exit(0)\"",
+                    },
+                },
+                null,
+                4,
+            ) + "\n",
+        );
+
+        const outsidePath = path.resolve(
+            process.cwd(),
+            "..",
+            `repo-context-kit-secret-${process.pid}-${Date.now()}.md`,
+        );
+        fs.writeFileSync(outsidePath, "# Outside\n\n## Test Command\n\n```bash\necho hi\n```\n", "utf-8");
+
+        writeFile(
+            "task/task.md",
+            `# Task Registry\n\n## Tasks\n\n| ID | Title | Status | Priority | Owner | Dependencies | File |\n|----|------|--------|----------|-------|--------------|------|\n| T-001 | Bad Path | todo | medium | - | - | ../../${path.basename(outsidePath)} |\n`,
+        );
+
+        writeFile("task/T-001-good.md", "# T-001 Good\n\n## Test Command\n\n```bash\nnpm test\n```\n");
+
+        process.exitCode = 0;
+        const { output: confirmed } = await withCapturedConsole(() =>
+            runGate(["confirm", "task", "T-001", "--json"]),
+        );
+        const token = JSON.parse(confirmed.join("\n")).token;
+        await withMutedConsole(() => runGate(["confirm", "tests", "T-001"]));
+
+        process.exitCode = 0;
+        const { output: pathTraversal } = await withCapturedConsole(() =>
+            runGate(["run-test", "T-001", "--token", token, "--json"]),
+        );
+        const traversalPayload = JSON.parse(pathTraversal.join("\n"));
+        assert.equal(traversalPayload.ok, false);
+        assert.match(String(traversalPayload.error), /path traversal|\.\./i);
+
+        writeFile(
+            "task/task.md",
+            `# Task Registry\n\n## Tasks\n\n| ID | Title | Status | Priority | Owner | Dependencies | File |\n|----|------|--------|----------|-------|--------------|------|\n| T-001 | Abs Path | todo | medium | - | - | ${outsidePath.replaceAll("\\\\", "/")} |\n`,
+        );
+
+        process.exitCode = 0;
+        const { output: absolutePath } = await withCapturedConsole(() =>
+            runGate(["run-test", "T-001", "--token", token, "--json"]),
+        );
+        const absolutePayload = JSON.parse(absolutePath.join("\n"));
+        assert.equal(absolutePayload.ok, false);
+        assert.match(String(absolutePayload.error), /absolute/i);
+
+        writeFile(
+            "task/task.md",
+            `# Task Registry\n\n## Tasks\n\n| ID | Title | Status | Priority | Owner | Dependencies | File |\n|----|------|--------|----------|-------|--------------|------|\n| T-001 | Good Path | todo | medium | - | - | task/T-001-good.md |\n`,
+        );
+
+        process.exitCode = 0;
+        const { output: allowed } = await withCapturedConsole(() =>
+            runGate(["run-test", "T-001", "--token", token, "--json"]),
+        );
+        const allowedPayload = JSON.parse(allowed.join("\n"));
+        assert.equal(allowedPayload.ok, true);
+        assert.equal(allowedPayload.exitCode, 0);
+        assert.equal(allowedPayload.command, "npm test");
+
+        writeFile(
+            "task/T-001-good.md",
+            "# T-001 Good\n\n## Test Command\n\n```bash\nnpm test && rm -rf /\n```\n",
+        );
+        process.exitCode = 0;
+        const { output: metachar } = await withCapturedConsole(() =>
+            runGate(["run-test", "T-001", "--token", token, "--json"]),
+        );
+        const metacharPayload = JSON.parse(metachar.join("\n"));
+        assert.equal(metacharPayload.ok, false);
+        assert.match(String(metacharPayload.error), /metachar|safety/i);
+
+        writeFile(
+            "task/T-001-good.md",
+            "# T-001 Good\n\n## Test Command\n\n```bash\necho hi\n```\n",
+        );
+        process.exitCode = 0;
+        const { output: arbitrary } = await withCapturedConsole(() =>
+            runGate(["run-test", "T-001", "--token", token, "--json"]),
+        );
+        const arbitraryPayload = JSON.parse(arbitrary.join("\n"));
+        assert.equal(arbitraryPayload.ok, false);
+        assert.match(String(arbitraryPayload.error), /Unsupported test command/i);
+
+        writeFile(
+            "task/T-001-good.md",
+            "# T-001 Good\n\n## Test Command\n\n```bash\npytest\n```\n",
+        );
+        process.exitCode = 0;
+        const { output: pytest } = await withCapturedConsole(() =>
+            runGate(["run-test", "T-001", "--token", token, "--json"]),
+        );
+        const pytestPayload = JSON.parse(pytest.join("\n"));
+        assert.equal(pytestPayload.command, "pytest");
+        assert.equal(pytestPayload.error, null);
+
+        try {
+            fs.rmSync(outsidePath, { force: true });
+        } catch {}
+    });
+});
+
 test("mcp runtime.plan stays isolated across concurrent servers with different roots", async () => {
     const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "repo-context-kit-mcp-A-"));
     const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "repo-context-kit-mcp-B-"));
@@ -2594,6 +2712,8 @@ old generated content
                     owner: "Wilson",
                     dependencies: "T-000",
                     file: "task/T-001-add-receipt-api.md",
+                    fileRaw: "./T-001-add-receipt-api.md",
+                    fileError: null,
                 },
             ]);
         });
@@ -2641,6 +2761,62 @@ old generated content
             await withMutedConsole(() => runInit());
             writeFile("docs/big.txt", "a".repeat(210 * 1024));
             assert.throws(() => loadDesignDoc("docs/big.txt", { repoRoot: process.cwd() }));
+        });
+    });
+
+    await t.test("doc loader rejects symlink escape and does not crash on broken links", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+
+            const outsideDir = path.resolve(
+                process.cwd(),
+                "..",
+                `repo-context-kit-doc-outside-${process.pid}-${Date.now()}`,
+            );
+            fs.mkdirSync(outsideDir, { recursive: true });
+            try {
+                const outsideDoc = path.join(outsideDir, "secret.md");
+                fs.writeFileSync(outsideDoc, "# Outside\n", "utf-8");
+
+                const linkDir = path.resolve(process.cwd(), "docs-link");
+                let linked = true;
+                try {
+                    fs.symlinkSync(outsideDir, linkDir, process.platform === "win32" ? "junction" : "dir");
+                } catch {
+                    linked = false;
+                }
+
+                if (!linked) {
+                    return;
+                }
+
+                const linkDocPath = path.resolve(process.cwd(), "docs-link", "secret.md");
+                try {
+                    const realpath = typeof fs.realpathSync?.native === "function" ? fs.realpathSync.native : fs.realpathSync;
+                    const resolved = realpath(linkDocPath);
+                    const rootRealpath = realpath(process.cwd());
+                    assert.ok(!resolved.toLowerCase().startsWith(rootRealpath.toLowerCase() + path.sep));
+                } catch {}
+
+                assert.throws(
+                    () => loadDesignDoc("docs-link/secret.md", { repoRoot: process.cwd() }),
+                    (error) => Boolean(error && error.code === "PATH_ESCAPE"),
+                );
+
+                fs.rmSync(outsideDir, { recursive: true, force: true });
+
+                assert.throws(
+                    () => loadDesignDoc("docs-link/secret.md", { repoRoot: process.cwd() }),
+                    (error) => Boolean(error && error.code === "DOC_NOT_FOUND"),
+                );
+            } finally {
+                try {
+                    fs.rmSync(path.resolve(process.cwd(), "docs-link"), { recursive: true, force: true });
+                } catch {}
+                try {
+                    fs.rmSync(outsideDir, { recursive: true, force: true });
+                } catch {}
+            }
         });
     });
 

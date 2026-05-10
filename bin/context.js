@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import path from "path";
 import {
     CONTEXT_INDEX_ENTRYPOINTS_PATH,
@@ -12,7 +13,7 @@ import {
 } from "../src/scan/constants.js";
 import { exists, listDirSafe, readJson, readText } from "../src/scan/fs-utils.js";
 import { listTaskFiles } from "../src/scan/task-files.js";
-import { getRegistryStatusBreakdown, parseTaskRegistry } from "../src/scan/task-registry.js";
+import { getRegistryStatusBreakdown, parseTaskRegistry, resolveTaskFilePath } from "../src/scan/task-registry.js";
 import { appendLoopEvent, formatLoopEventsMarkdown, listRecentLoopEvents } from "../src/loop/store.js";
 import { evaluateContextLoop } from "../src/loop/analyze.js";
 import { resolveBudgetMode } from "../src/budget/policy.js";
@@ -705,12 +706,22 @@ function buildTaskContext(task, registry, level, limits, warnings, options = {})
     if (detailOverride.trim()) {
         detailContent = detailOverride;
         parts.push(`## Selected Task Detail\n\n${summarizeTaskDetail(detailContent, { maxChars: digest ? 1600 : 3000 })}`);
-    } else if (task.file && exists(task.file)) {
-        includedSources.push(task.file);
-        detailContent = readText(task.file);
-        parts.push(`## Selected Task Detail\n\n${summarizeTaskDetail(detailContent, { maxChars: digest ? 1600 : 3000 })}`);
+    } else if (task.fileError) {
+        warnings.push(`Selected task ${task.id} has an invalid detail file: ${task.fileError}`);
     } else if (task.file) {
-        warnings.push(`Selected task detail file is missing: ${task.file}.`);
+        const resolved = resolveTaskFilePath(task, { requireExists: true });
+        if (!resolved.ok) {
+            const message = String(resolved.error ?? "").trim();
+            if (message.toLowerCase().includes("is missing")) {
+                warnings.push(`Selected task detail file is missing: ${task.file}.`);
+            } else {
+                warnings.push(`Selected task ${task.id} has an invalid detail file: ${message || "unknown error"}`);
+            }
+        } else {
+            includedSources.push(task.file);
+            detailContent = fs.readFileSync(resolved.filePath, "utf-8");
+            parts.push(`## Selected Task Detail\n\n${summarizeTaskDetail(detailContent, { maxChars: digest ? 1600 : 3000 })}`);
+        }
     } else {
         warnings.push(`Selected task ${task.id} has no detail file listed.`);
     }

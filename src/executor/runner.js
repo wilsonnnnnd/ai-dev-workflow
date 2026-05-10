@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildWorksetContext } from "../../bin/context.js";
 import { appendLoopEvent, listRecentLoopEvents } from "../loop/store.js";
-import { parseTaskRegistry } from "../scan/task-registry.js";
+import { parseTaskRegistry, resolveTaskFilePath } from "../scan/task-registry.js";
 import { loadExecutorState, resetExecutorState, updateExecutorState } from "./state.js";
 import { withRepoRoot } from "../runtime/root-context.js";
 
@@ -96,11 +96,11 @@ export function loadTask(taskId, cwd = process.cwd()) {
             return { ok: false, error: `Task not found: ${normalizedTaskId}. Check task/task.md for available task IDs.`, state: null, task: null, worksetSummary: null, taskSummary: null };
         }
 
-        const taskDetailPath = task.file ? String(task.file) : null;
         let taskDetail = "";
-        if (taskDetailPath) {
+        const resolved = resolveTaskFilePath(task, { repoRoot: cwd, requireExists: false });
+        if (resolved.ok && resolved.filePath) {
             try {
-                taskDetail = fs.readFileSync(path.resolve(cwd, taskDetailPath), "utf-8");
+                taskDetail = fs.readFileSync(resolved.filePath, "utf-8");
             } catch {
                 taskDetail = "";
             }

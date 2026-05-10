@@ -1,10 +1,12 @@
 import { spawn } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import path from "path";
-import { parseTaskRegistry } from "../scan/task-registry.js";
+import { parseTaskRegistry, resolveTaskFilePath } from "../scan/task-registry.js";
 import { validateGate } from "./state.js";
 
-const ALLOWED_TEST_COMMANDS = new Set(["npm test", "pnpm test", "yarn test", "pytest"]);
+const FORBIDDEN_META_CHARS = /[&;|><`]/;
+const FORBIDDEN_SUBSHELL = /\$\(|\$\{/;
+const FORBIDDEN_PATH_CHARS = /[\\/]/;
 
 function extractSection(content, heading) {
     const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -29,16 +31,84 @@ function resolveTaskFile(taskId) {
         return { error: `Task not found: ${taskId}`, file: null };
     }
 
-    if (!task.file) {
-        return { error: `Task ${taskId} has no file entry in task/task.md`, file: null };
+    const resolved = resolveTaskFilePath(task, { requireExists: true });
+    if (!resolved.ok) {
+        return { error: resolved.error || "Task file is invalid.", file: null };
     }
 
-    const filePath = path.resolve(process.cwd(), task.file);
-    if (!existsSync(filePath)) {
+    if (!resolved.filePath || !existsSync(resolved.filePath)) {
         return { error: `Task file does not exist: ${task.file}`, file: null };
     }
 
-    return { error: null, file: filePath };
+    return { error: null, file: resolved.filePath };
+}
+
+function validateStructuredCommand(command, args) {
+    const cmdRaw = String(command ?? "").trim();
+    if (!cmdRaw) {
+        return { ok: false, error: "Empty test command." };
+    }
+
+    const normalizedCmd = cmdRaw.replace(/\.(cmd|exe)$/i, "").toLowerCase();
+    const normalizedArgs = Array.isArray(args) ? args.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
+
+    if (FORBIDDEN_PATH_CHARS.test(cmdRaw)) {
+        return { ok: false, error: `Unsupported test command for safety: "${cmdRaw}". Use a bare command name.` };
+    }
+
+    const allowedPackageManagers = new Set(["npm", "pnpm", "yarn"]);
+    if (allowedPackageManagers.has(normalizedCmd)) {
+        const signature = normalizedArgs.join(" ");
+        if (signature !== "test" && signature !== "run test") {
+            return {
+                ok: false,
+                error: `Unsupported test command for safety: "${normalizeCommand([normalizedCmd, ...normalizedArgs].join(" "))}". Allowed: npm test, npm run test, pnpm test, pnpm run test, yarn test, yarn run test, pytest.`,
+            };
+        }
+        return { ok: true, command: normalizedCmd, args: normalizedArgs };
+    }
+
+    if (normalizedCmd === "pytest") {
+        if (normalizedArgs.length > 0) {
+            return {
+                ok: false,
+                error: `Unsupported test command for safety: "${normalizeCommand([normalizedCmd, ...normalizedArgs].join(" "))}". Allowed: pytest.`,
+            };
+        }
+        return { ok: true, command: "pytest", args: [] };
+    }
+
+    return {
+        ok: false,
+        error: `Unsupported test command for safety: "${normalizeCommand([cmdRaw, ...normalizedArgs].join(" "))}". Allowed: npm test, npm run test, pnpm test, pnpm run test, yarn test, yarn run test, pytest.`,
+    };
+}
+
+function parseTestCommand(raw) {
+    const commandText = normalizeCommand(raw);
+    if (!commandText) {
+        return { ok: false, error: "Empty test command." };
+    }
+
+    if (FORBIDDEN_META_CHARS.test(commandText) || commandText.includes("&&") || FORBIDDEN_SUBSHELL.test(commandText)) {
+        return { ok: false, error: "Unsupported test command for safety: shell metacharacters are not allowed." };
+    }
+
+    const tokens = commandText.split(" ").filter(Boolean);
+    const command = tokens[0] ?? "";
+    const args = tokens.slice(1);
+
+    const validated = validateStructuredCommand(command, args);
+    if (!validated.ok) {
+        return { ok: false, error: validated.error };
+    }
+
+    return {
+        ok: true,
+        display: normalizeCommand([validated.command, ...validated.args].join(" ")),
+        executable: validated.command,
+        args: validated.args,
+    };
 }
 
 function getTaskTestCommand(taskId) {
@@ -55,27 +125,28 @@ function getTaskTestCommand(taskId) {
     }
 
     const fencedMatch = raw.match(/```(?:bash)?\s*\n([\s\S]*?)\n```/i);
-    const command = normalizeCommand(fencedMatch?.[1] ?? raw.split("\n")[0]);
-
-    if (!command) {
-        return { error: `Task ${taskId} has an empty test command.`, command: null };
+    const firstLine = (fencedMatch?.[1] ?? raw.split("\n")[0] ?? "").trim();
+    const parsed = parseTestCommand(firstLine);
+    if (!parsed.ok) {
+        return { error: parsed.error, command: null };
     }
 
-    if (!ALLOWED_TEST_COMMANDS.has(command)) {
-        return {
-            error: `Unsupported test command for safety: "${command}". Allowed: ${[...ALLOWED_TEST_COMMANDS].join(", ")}.`,
-            command: null,
-        };
-    }
-
-    return { error: null, command };
+    return { error: null, command: parsed };
 }
 
 async function runAllowedCommand(command) {
     return new Promise((resolve) => {
-        const child = spawn(command, {
+        const isWindows = process.platform === "win32";
+        const isPackageManager =
+            command.executable === "npm" || command.executable === "pnpm" || command.executable === "yarn";
+        const spawnCommand = isWindows && isPackageManager ? (process.env.ComSpec || "cmd.exe") : command.executable;
+        const spawnArgs = isWindows && isPackageManager
+            ? ["/d", "/s", "/c", command.executable, ...command.args]
+            : command.args;
+
+        const child = spawn(spawnCommand, spawnArgs, {
             stdio: "inherit",
-            shell: true,
+            shell: false,
             windowsHide: true,
         });
 
@@ -95,8 +166,7 @@ export async function runTaskTestThroughGate({ taskId, token }) {
         return { ok: false, exitCode: 1, error, command: null };
     }
 
-    console.log(`Running: ${command}`);
     const exitCode = await runAllowedCommand(command);
-    return { ok: exitCode === 0, exitCode, error: null, command };
+    return { ok: exitCode === 0, exitCode, error: null, command: command.display };
 }
 

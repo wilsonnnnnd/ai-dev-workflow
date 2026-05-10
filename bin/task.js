@@ -22,6 +22,7 @@ import {
     ensureTaskRegistry,
     getKnownTaskIds,
     parseTaskRegistry,
+    resolveTaskFilePath,
 } from "../src/scan/task-registry.js";
 import { loadDesignDoc } from "../src/docs/doc-loader.js";
 import { extractPlanningData } from "../src/docs/doc-extractor.js";
@@ -461,17 +462,18 @@ function getDependencySummaries(task, registry) {
 }
 
 function readTaskDetail(task, warnings) {
-    if (!task.file) {
-        warnings.push(`Task ${task.id} has no detail file listed.`);
+    const resolved = resolveTaskFilePath(task, { requireExists: true });
+    if (!resolved.ok) {
+        warnings.push(resolved.error || `Task ${task.id} detail file is invalid.`);
         return "";
     }
 
-    if (!exists(task.file)) {
+    try {
+        return fs.readFileSync(resolved.filePath, "utf-8");
+    } catch {
         warnings.push(`Task detail file is missing: ${task.file}.`);
         return "";
     }
-
-    return readText(task.file);
 }
 
 function normalizeTaskId(taskId) {
