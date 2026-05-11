@@ -31,6 +31,7 @@ import { serializeJson } from "../src/runtime/serialize.js";
 import { getRepoRoot } from "../src/runtime/root-context.js";
 import { bootstrapDoctor } from "../src/bootstrap/doctor.js";
 import { stableStringCompare } from "../src/runtime/stable-sort.js";
+import { computeContextHash, scoreContextCacheability } from "../src/runtime/context-compression.js";
 
 const TASK_DIR = "task";
 const DOC_TASK_LIMIT = 10;
@@ -447,6 +448,23 @@ function extractWorksetSection(workset, heading) {
     return match?.groups?.body?.trim() ?? "";
 }
 
+function isFrontendTask(task, taskDetail = "") {
+    const haystack = `${task?.title ?? ""}\n${taskDetail}`.toLowerCase();
+    return /(ui|frontend|react|vue|css|style|component|design|layout|theme)/i.test(haystack);
+}
+
+function getBoundedUiDesignContext(maxChars = 1200) {
+    const aiProject = readText(CONTEXT_PROJECT_MD_PATH);
+    if (!aiProject) {
+        return "";
+    }
+    const section = extractSection(aiProject, "UI Design Context");
+    if (!section) {
+        return "";
+    }
+    return section.length > maxChars ? `${section.slice(0, maxChars - 12).trimEnd()}\n[truncated]` : section;
+}
+
 function toCheckboxItems(content, fallback) {
     const items = String(content ?? "")
         .split("\n")
@@ -782,6 +800,16 @@ function renderTaskOutputMeta(
     const uniqueWarnings = [...new Set(warnings)];
     const includedSources = getTaskIncludedSources(deep);
     const excludedSourceList = getTaskExcludedSources(excludedSources);
+    const stableMetaSeed = {
+        level,
+        taskId: taskId ?? null,
+        deep: Boolean(deep),
+        maxChars,
+        includedSources: [...includedSources].sort(stableStringCompare),
+        excludedSources: [...excludedSourceList].sort(stableStringCompare),
+    };
+    const cacheability = scoreContextCacheability(JSON.stringify(stableMetaSeed), true);
+    const volatility = cacheability >= 80 ? "low" : cacheability >= 50 ? "medium" : "high";
     const lines = [
         "## Context Meta",
         "",
@@ -791,6 +819,9 @@ function renderTaskOutputMeta(
         `- excluded sources: ${excludedSourceList.length}`,
         `- limits: maxChars=${maxChars}, worksetMode=${deep ? "deep" : "default"}`,
         `- warnings: ${uniqueWarnings.length}`,
+        `- context_hash: ${computeContextHash(stableMetaSeed)}`,
+        `- cacheable: ${cacheability >= 60 ? "true" : "false"}`,
+        `- volatility: ${volatility}`,
     ];
 
     if (options.manifest) {
@@ -972,6 +1003,8 @@ function buildTaskPrDescription(taskId, options = {}) {
     }
 
     const taskDetail = readTaskDetail(task, warnings);
+    const frontendTask = isFrontendTask(task, taskDetail);
+    const uiDesignContext = frontendTask ? getBoundedUiDesignContext(700) : "";
     const goal = extractSection(taskDetail, "Goal") || "Address the selected task using the available registry metadata and workset context.";
     const hardBoundaries = getTaskGuardSection(taskDetail, "Hard Boundaries", DEFAULT_HARD_BOUNDARIES, warnings);
     const confirmationPoints = getTaskGuardSection(taskDetail, "Confirmation Points", DEFAULT_CONFIRMATION_POINTS, warnings);
@@ -1070,6 +1103,22 @@ function buildTaskPrDescription(taskId, options = {}) {
             "",
             goal,
         ].join("\n"),
+        [
+            "## Canonical Context References",
+            "",
+            "- Rules: See `.aidw/rules-canonical.md`",
+            "- Workflow: See `.aidw/workflow.md`",
+            "- Safety: See `.aidw/safety.md`",
+        ].join("\n"),
+        frontendTask && uiDesignContext
+            ? [
+                  "## UI Design Context (Frontend Only)",
+                  "",
+                  "Apply Logic-First order: logic -> data/state -> UI.",
+                  "",
+                  uiDesignContext,
+              ].join("\n")
+            : null,
         [
             "## Linked Task",
             "",
@@ -1208,6 +1257,8 @@ function buildTaskChecklist(taskId, options = {}) {
     }
 
     const taskDetail = readTaskDetail(task, warnings);
+    const frontendTask = isFrontendTask(task, taskDetail);
+    const uiDesignContext = frontendTask ? getBoundedUiDesignContext(700) : "";
     const goal = extractSection(taskDetail, "Goal") || "Review task detail and registry metadata to confirm the intended outcome.";
     const acceptanceCriteria = extractSection(taskDetail, "Acceptance Criteria");
     const loopResult = budget === "auto" || budget === "full"
@@ -1304,6 +1355,22 @@ function buildTaskChecklist(taskId, options = {}) {
             "",
             goal,
         ].join("\n"),
+        [
+            "## Canonical Context References",
+            "",
+            "- Rules: See `.aidw/rules-canonical.md`",
+            "- Workflow: See `.aidw/workflow.md`",
+            "- Safety: See `.aidw/safety.md`",
+        ].join("\n"),
+        frontendTask && uiDesignContext
+            ? [
+                  "## UI Design Context (Frontend Only)",
+                  "",
+                  "Apply Logic-First order: logic -> data/state -> UI.",
+                  "",
+                  uiDesignContext,
+              ].join("\n")
+            : null,
         renderBootstrapDoctorSummary({ maxRisks: 5, maxActions: 6 }),
         exceptionBudget ? renderLoopSignals(task.id, task.title) : null,
         [
@@ -1459,6 +1526,8 @@ export function buildTaskPrompt(taskRef, options = {}) {
     }
 
     const taskDetailForPrompt = fullDetail ? taskDetail : summarizeTaskDetailForPrompt(taskDetail);
+    const frontendTask = isFrontendTask(task, taskDetail);
+    const uiDesignContext = frontendTask ? getBoundedUiDesignContext(compact ? 700 : 1200) : "";
     const dependencySummaries = registry.exists ? getDependencySummaries(task, registry) : [];
     const upgradesApplied = [];
     if (!base.compact && compact) upgradesApplied.push("compact");
@@ -1582,6 +1651,22 @@ export function buildTaskPrompt(taskRef, options = {}) {
                   "",
                   taskDetailForPrompt || "_Task detail file is unavailable. Use registry metadata and ask for more specific context if needed._",
               ].join("\n"),
+        [
+            "## Canonical Context References",
+            "",
+            "- Rules: See `.aidw/rules-canonical.md`",
+            "- Workflow: See `.aidw/workflow.md`",
+            "- Safety: See `.aidw/safety.md`",
+        ].join("\n"),
+        frontendTask && uiDesignContext
+            ? [
+                  "## UI Design Context (Frontend Only)",
+                  "",
+                  "Apply Logic-First order: logic -> data/state -> UI.",
+                  "",
+                  uiDesignContext,
+              ].join("\n")
+            : null,
         renderBootstrapDoctorSummary({ maxRisks: compact ? 3 : 5, maxActions: compact ? 4 : 6 }),
         [
             "## Hard Boundaries",

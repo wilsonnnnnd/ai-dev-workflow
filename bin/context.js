@@ -21,6 +21,9 @@ import { evaluateContextLoop } from "../src/loop/analyze.js";
 import { resolveBudgetMode } from "../src/budget/policy.js";
 import { formatBudgetDecisionMarkdown } from "../src/budget/decision.js";
 import { getCachedBriefDigest, writeBriefDigestCache } from "../src/loop/context-cache.js";
+import { generateContextBrief, formatContextBriefCompact } from "../src/runtime/context-brief.js";
+import { computeContextHash, scoreContextCacheability } from "../src/runtime/context-compression.js";
+import { rankFilesForContext } from "../src/runtime/context-relevance.js";
 
 const LIMITS = {
     brief: {
@@ -399,7 +402,7 @@ function selectRelatedFiles(task, detailContent, limits, warnings) {
             .flatMap((group) => group.keyFiles ?? []),
     );
 
-    return files
+    const baseCandidates = files
         .map((file) => {
             const textScore = scoreText(`${file.path} ${file.description} ${file.type}`, keywords);
             const explicit = explicitPaths.has(file.path);
@@ -427,6 +430,32 @@ function selectRelatedFiles(task, detailContent, limits, warnings) {
             };
         })
         .filter(Boolean)
+        .sort((a, b) => b.score - a.score || b.confidence - a.confidence || stablePathCompare(a.path, b.path));
+
+    if (baseCandidates.length === 0) {
+        return [];
+    }
+
+    const sourcePath = task.file || [...explicitPaths][0] || baseCandidates[0].path;
+    const ranked = rankFilesForContext(sourcePath, baseCandidates.map((candidate) => candidate.path), {
+        recentFiles: [],
+    });
+    const relevanceMap = new Map(ranked.map((item) => [item.file, item]));
+
+    return baseCandidates
+        .map((candidate) => {
+            const relevance = relevanceMap.get(candidate.path);
+            const relevanceScore = relevance?.score ?? 0;
+            const reasons = [];
+            if (candidate.reason) reasons.push(candidate.reason);
+            if (relevance?.reasons?.length) reasons.push(`relevance: ${relevance.reasons.join(",")}`);
+
+            return {
+                ...candidate,
+                score: candidate.score + Math.round(relevanceScore / 20),
+                reason: reasons.join("; "),
+            };
+        })
         .sort((a, b) => b.score - a.score || b.confidence - a.confidence || stablePathCompare(a.path, b.path))
         .slice(0, limits.maxRelatedFiles);
 }
@@ -500,6 +529,16 @@ function renderWarningsSummary(warnings, options = {}) {
 
 function renderMeta(manifest, options = {}) {
     const warnings = [...new Set(manifest.warnings)];
+    const stableMetaSeed = {
+        level: manifest.level,
+        taskId: manifest.taskId ?? null,
+        includedSources: [...manifest.includedSources].sort(stablePathCompare),
+        excludedSources: [...manifest.excludedSources].sort(stablePathCompare),
+        limits: manifest.limits,
+    };
+    const stableMetaText = JSON.stringify(stableMetaSeed);
+    const cacheability = scoreContextCacheability(stableMetaText, true);
+    const volatility = cacheability >= 80 ? "low" : cacheability >= 50 ? "medium" : "high";
     const lines = [
         "## Context Meta",
         "",
@@ -509,6 +548,9 @@ function renderMeta(manifest, options = {}) {
         `- excluded sources: ${manifest.excludedSources.length}`,
         `- limits: ${manifest.limits}`,
         `- warnings: ${warnings.length}`,
+        `- context_hash: ${computeContextHash(stableMetaSeed)}`,
+        `- cacheable: ${cacheability >= 60 ? "true" : "false"}`,
+        `- volatility: ${volatility}`,
     ];
     if (options.manifest) {
         lines.push("", renderManifest(manifest));
@@ -603,6 +645,31 @@ function buildBrief(options = {}) {
         parts.push(`## Package Metadata\n\n${formatList(metadata)}`);
     }
 
+    if (digest) {
+        const packageName = metadata
+            .find((item) => item.toLowerCase().startsWith("name:"))
+            ?.split(":")
+            ?.slice(1)
+            ?.join(":")
+            ?.trim() || "-";
+        const briefModel = generateContextBrief({
+            name: packageName,
+            type: "cli-tool",
+            language: "JavaScript",
+            framework: null,
+            runtime: "Node.js",
+            hasUI: false,
+            entryPoints: [],
+            uiDirs: [],
+            utilityDirs: ["src", "bin"],
+            testDirs: ["test"],
+            riskCount: Array.isArray(project.riskAreas) ? project.riskAreas.length : 0,
+            riskLevel: Array.isArray(project.riskAreas) && project.riskAreas.length > 3 ? "high" : "low",
+            keyFiles: ["AGENTS.md", "PROJECT.md", ".aidw/AI_project.md"],
+        });
+        parts.push(`## Compact Context\n\n${formatContextBriefCompact(briefModel)}`);
+    }
+
     if (project.exists) {
         includedSources.push(CONTEXT_PROJECT_MD_PATH);
         if (project.purpose) {
@@ -635,6 +702,16 @@ function buildBrief(options = {}) {
         includedSources.push(TASK_REGISTRY_PATH);
         parts.push(`## Task Registry Summary\n\n${getTaskRegistrySummary(registry)}`);
     }
+
+    // Add canonical rules reference (PART 2B: Compression Integration)
+    const canonicalRulesRef = `## Context Guidelines
+
+See **.aidw/rules-canonical.md** for canonical rules:
+- Reuse first (before writing new code)
+- Logic first (architecture → data/state → UI)
+- Keep scope tight (only related changes)
+- Do not break (safety gates, tests always pass)`;
+    parts.push(canonicalRulesRef);
 
     if (digest) {
         parts.push(`## Context Loop Digest\n\n${formatLoopDigest({ taskId: null })}`);
@@ -1167,6 +1244,7 @@ export async function runContext(args = []) {
         console.log("Usage:");
         console.log("  repo-context-kit context brief");
         console.log("  repo-context-kit context next");
+        console.log("  repo-context-kit context doctor [--json]");
         console.log("  repo-context-kit context for <taskId> [--compact|--digest] [--deep]");
         console.log("");
         console.log("Compatibility:");
@@ -1180,8 +1258,24 @@ export async function runContext(args = []) {
         console.log("  --manifest   Include full context manifest footer");
         console.log("  --verbose    Print all warnings instead of summarizing");
         console.log("  --budget     Budget policy: off | auto | full (also via REPO_CONTEXT_KIT_BUDGET)");
+        console.log("  --json       For doctor: output JSON instead of text");
         return {
             output: null,
+        };
+    }
+
+    if (subcommand === "doctor") {
+        const { analyzeContextHealth, formatContextDoctorCompact, formatContextDoctorJson } = await import(
+            "../src/runtime/context-doctor.js"
+        );
+        const analysis = analyzeContextHealth();
+        const format = args.includes("--json") ? "json" : "text";
+        const result = format === "json" 
+            ? formatContextDoctorJson(analysis) 
+            : formatContextDoctorCompact(analysis);
+        console.log(result);
+        return {
+            output: result,
         };
     }
 

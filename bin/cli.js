@@ -45,6 +45,7 @@ const ADVANCED_COMMAND_GROUPS = [
             'task new "Task title" [--force] [--dry-run]',
             "task from-doc <path> [--dry-run] [--json]",
             "context brief",
+            "context doctor [--json]",
             "context next",
             "context for <taskId> [--compact|--digest] [--deep]",
         ],

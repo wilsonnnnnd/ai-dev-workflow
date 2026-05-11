@@ -34,6 +34,7 @@ import { BOOTSTRAP_VERSION } from "../src/bootstrap/constants.js";
 import { hygieneScan } from "../src/hygiene/scan.js";
 import { hygienePlan } from "../src/hygiene/plan.js";
 import { MCP_CAPABILITY_TIERS, buildMcpCapabilityPolicy } from "../src/mcp/tools.js";
+import { computeRelevanceScore, filterRelevantFiles, rankFilesForContext } from "../src/runtime/context-relevance.js";
 
 const originalCwd = process.cwd();
 
@@ -4981,6 +4982,157 @@ seed
         });
     });
 
+    await t.test("context doctor analyzes project context health with deterministic output", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "test-project" }));
+
+            const { output: output1 } = await withCapturedConsole(() => runContext(["doctor"]));
+            const { output: output2 } = await withCapturedConsole(() => runContext(["doctor"]));
+            const text = output1.join("\n");
+
+            // Verify deterministic output
+            assert.equal(output1.join("\n"), output2.join("\n"), "doctor output should be deterministic");
+
+            // Verify structure
+            assert.match(text, /# Context Health/);
+            assert.match(text, /duplication_score:/);
+            assert.match(text, /signal_noise_ratio:/);
+            assert.match(text, /prose_density:/);
+            assert.match(text, /# Recommendations/);
+
+            // Verify bounded output (< 2000 chars)
+            assert.ok(text.length < 2000, `doctor output too large: ${text.length} chars`);
+        });
+    });
+
+    await t.test("context doctor --json outputs structured data", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+
+            const { output } = await withCapturedConsole(() => runContext(["doctor", "--json"]));
+            const text = output.join("\n");
+            const json = JSON.parse(text);
+
+            assert.ok(json.health, "should have health object");
+            assert.ok(typeof json.health.duplication_score === "number");
+            assert.ok(typeof json.health.signal_noise_ratio === "number");
+            assert.ok(Array.isArray(json.recommendations));
+            assert.ok(json.duplication, "should have duplication object");
+        });
+    });
+    await t.test("context brief output includes canonical rules reference and stays bounded", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "test-project" }));
+
+            const { output } = await withCapturedConsole(() => runContext(["brief"]));
+            const text = output.join("\n");
+
+            // Verify canonical rules reference is present
+            assert.match(text, /## Context Guidelines/);
+            assert.match(text, /\.aidw\/rules-canonical\.md/);
+            assert.match(text, /Reuse first/);
+
+            // Verify output length is bounded (< 8500 chars to leave margin)
+            assert.ok(
+                text.length < 8500,
+                `brief output too large: ${text.length} chars (max 8000)`
+            );
+
+            assert.match(text, /context_hash: [a-f0-9]{16}/);
+            assert.match(text, /cacheable: (true|false)/);
+            assert.match(text, /volatility: (low|medium|high)/);
+        });
+    });
+
+    await t.test("context brief does not duplicate rule descriptions", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile("package.json", JSON.stringify({ name: "test-project" }));
+
+            const { output } = await withCapturedConsole(() => runContext(["brief"]));
+            const text = output.join("\n");
+
+            // Count rule references
+            const reuseCount = (text.match(/Reuse first/g) || []).length;
+            const logicCount = (text.match(/Logic first/g) || []).length;
+
+            // Should only appear once in canonical reference, not duplicated
+            assert.equal(
+                reuseCount,
+                1,
+                `"Reuse first" should appear once, found ${reuseCount} times`
+            );
+            assert.equal(
+                logicCount,
+                1,
+                `"Logic first" should appear once, found ${logicCount} times`
+            );
+        });
+    });
+    await t.test("relevance ranking scores files by dependency distance and shared modules", async () => {
+        const sourceFile = "src/services/auth.js";
+        const candidates = [
+            "src/services/crypto.js",
+            "src/utils/helpers.js",
+            "src/models/user.js",
+            "test/setup.js",
+            "docs/api.md",
+        ];
+
+        const context = {
+            imports: {
+                "src/services/auth.js": ["crypto", "models/user"],
+            },
+        };
+
+        const ranked = rankFilesForContext(sourceFile, candidates, context);
+
+        // Should rank same module higher
+        assert.ok(ranked[0].score > 0, "should score candidate files");
+        assert.ok(ranked.length === candidates.length, "should rank all candidates");
+        assert.ok(
+            ranked[0].file === "src/services/crypto.js" ||
+                ranked[0].file === "src/models/user.js",
+            "should prioritize same module or imported files"
+        );
+    });
+
+    await t.test("relevance filtering keeps only top-ranked and bounded files", async () => {
+        const sourceFile = "src/index.js";
+        const candidates = Array.from({ length: 50 }, (_, i) => `src/module${i}/file${i}.js`);
+
+        const filtered = filterRelevantFiles(sourceFile, candidates, {}, 10, 0);
+
+        assert.equal(
+            filtered.length,
+            10,
+            `should limit to maxCount=10, got ${filtered.length}`
+        );
+        assert.ok(
+            filtered.every((item) => item.score >= 0),
+            "should filter by minScore"
+        );
+    });
+
+    await t.test("relevance scoring deterministic for same input", async () => {
+        const sourceFile = "src/app.js";
+        const targetFile = "src/utils/helpers.js";
+        const context = {};
+
+        const score1 = computeRelevanceScore(sourceFile, targetFile, context);
+        const score2 = computeRelevanceScore(sourceFile, targetFile, context);
+
+        assert.deepEqual(
+            score1,
+            score2,
+            "relevance score should be deterministic"
+        );
+        assert.ok(typeof score1.score === "number", "score should be numeric");
+        assert.ok(Array.isArray(score1.reasons), "should include reasons");
+    });
+
     await t.test("context brief does not dump large indexes", async () => {
         await withTempProject(async () => {
             await withMutedConsole(() => runInit());
@@ -5504,6 +5656,74 @@ Generate AI-ready prompts.
             assert.match(text, /## Required Final Response Format/);
             assert.match(text, /included sources: 3/);
             assert.match(text, /excluded sources:/);
+        });
+    });
+
+    await t.test("task prompt injects UI design context only for frontend tasks", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                ".aidw/AI_project.md",
+                `# AI Project Context
+
+## UI Design Context
+
+- Framework: React
+- Styling: CSS Modules
+`,
+            );
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Frontend UI polish | todo | medium | - | - | [T-001](./T-001-ui.md) |
+| T-002 | Refactor parser logic | todo | medium | - | - | [T-002](./T-002-logic.md) |
+`,
+            );
+            writeFile("task/T-001-ui.md", "# T-001\n\n## Goal\n\nPolish UI layout and component styles.\n");
+            writeFile("task/T-002-logic.md", "# T-002\n\n## Goal\n\nRefactor parser algorithm for stability.\n");
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+
+            const frontend = await withCapturedConsole(() => runTask(["prompt", "T-001"]));
+            const backend = await withCapturedConsole(() => runTask(["prompt", "T-002"]));
+            const frontendText = frontend.output.join("\n");
+            const backendText = backend.output.join("\n");
+
+            assert.match(frontendText, /## UI Design Context \(Frontend Only\)/);
+            assert.match(frontendText, /Framework: React/);
+            assert.doesNotMatch(backendText, /## UI Design Context \(Frontend Only\)/);
+        });
+    });
+
+    await t.test("task prompt context meta includes stable cache foundation fields", async () => {
+        await withTempProject(async () => {
+            await withMutedConsole(() => runInit());
+            writeFile(
+                "task/task.md",
+                `# Task Registry
+
+## Tasks
+
+| ID | Title | Status | Priority | Owner | Dependencies | File |
+|----|------|--------|----------|-------|--------------|------|
+| T-001 | Cache metadata task | todo | medium | - | - | [T-001](./T-001-cache.md) |
+`,
+            );
+            writeFile("task/T-001-cache.md", "# T-001\n\n## Goal\n\nValidate prompt context meta.\n");
+            writeFile(".aidw/index/files.json", "[]\n");
+            writeFile(".aidw/index/symbols.json", "[]\n");
+
+            const { output } = await withCapturedConsole(() => runTask(["prompt", "T-001"]));
+            const text = output.join("\n");
+
+            assert.match(text, /context_hash: [a-f0-9]{16}/);
+            assert.match(text, /cacheable: (true|false)/);
+            assert.match(text, /volatility: (low|medium|high)/);
         });
     });
 
