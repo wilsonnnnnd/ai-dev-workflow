@@ -808,7 +808,7 @@ export function buildTaskMap() {
             files: ["src/scan/context.js", "src/scan/constants.js", "test/cli.test.js"],
             notes: "Keep .aidw completeness checks focused on required files.",
             confidence: 0.75,
-            source: "heuristic",
+            source: "heuristic",    
         },
         {
             task: "change project index generation",

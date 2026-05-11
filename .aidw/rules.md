@@ -1,46 +1,30 @@
 # Engineering Rules
 
-## Reuse First
-- Always reuse existing components, hooks, utilities, and services first
-- Do not duplicate logic
-- Extend existing structures before creating new ones
+**See canonical source: `.aidw/rules-canonical.md`**
 
-## Shared Module Safety
-- Modify shared modules only when strongly related to the task
-- Any shared-module change must remain backward compatible
-- Existing usage must keep working
+This document provides a brief reference. All rules, constraints, and execution discipline are defined in `.aidw/rules-canonical.md`.
 
-## Scope Control
-- Change only files directly related to the task
-- Avoid unrelated refactors
-- Do not rename keys, APIs, or exported contracts unless required
+## Quick Reference
 
-## UI Rules
-- Follow hierarchy: global -> layout -> component -> element
-- Prefer shared styles, tokens, and existing class patterns
-- Avoid random inline styles, colors, spacing, or one-off patterns
+- **Reuse First**: Extend existing before creating new; preserve backward compatibility
+- **Logic First**: Implement business logic → data/state → UI (in that order)
+- **Scope Control**: Change only related files; avoid unrelated refactors
+- **UI Discipline**: Inspect and reuse existing design system before new UI code
+- **Safety**: Do not break existing functionality; preserve all safety gates and protocols
+- **Priority**: Reuse > New, Consistency > Cleverness, Safety > Speed
 
-## Code Quality
-- Match existing naming, structure, and patterns
-- Prefer readable code over clever code
-- Avoid over-abstraction
-- Avoid generic AI-style wrappers and helpers
+## Detailed Rules
 
-## Dependency Rule
-- Do not add new dependencies unless clearly necessary
+**See: `.aidw/rules-canonical.md`** for:
+- Complete rule groups
+- AI behavior constraints
+- Protected areas
+- Context discipline
+- Prioritization order
 
-## Documentation Alignment
-- For new features, add or update relevant documentation so the new behavior is discoverable
-- For changes to existing documented behavior, update the existing docs to match the latest implementation
-- Prefer updating an existing doc instead of creating a duplicate doc that overlaps in purpose
+## For Implementation
 
-## Safety
-- Do not break existing functionality
-- Keep types valid
-- Ensure behavior is predictable and reviewable
+1. Read `.aidw/rules-canonical.md` for all rules and constraints
+2. Reference by name (e.g., "per Logic First rule in rules-canonical.md")
+3. Never duplicate rules across files; always reference canonical source
 
-## Priority Order
-Reuse > New
-Consistency > Cleverness
-Safety > Speed
-Simplicity > Flexibility

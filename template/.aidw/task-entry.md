@@ -2,11 +2,10 @@ Load:
 - AGENTS.md
 - PROJECT.md
 - .aidw/AI_project.md
-- .aidw/rules.md
+- .aidw/rules-canonical.md (canonical source for all rules)
 - .aidw/workflow.md
 - .aidw/safety.md
 - .aidw/system-overview.md
-- .aidw/task-entry.md
 - .aidw/confirmation-protocol.md
 - current task file, when one exists
 
@@ -17,7 +16,7 @@ My request:
 
 # Instructions
 
-Use `AGENTS.md` as the source of truth.
+Use `AGENTS.md` as the source of truth. See `.aidw/rules-canonical.md` for all rules and constraints.
 
 - Decide mode:
   - REVIEW: user asks to review or provides an existing prompt/plan/task/implementation.
@@ -29,22 +28,25 @@ Use `AGENTS.md` as the source of truth.
 
 # Constraints
 
-- Follow `.aidw/rules.md`, `.aidw/workflow.md`, and `.aidw/safety.md`.
-- Reuse first; keep changes minimal; preserve backward compatibility; do not break existing functionality.
+Follow `.aidw/rules-canonical.md` for:
+- Reuse first and backward compatibility
+- Logic first implementation order
+- Scope control
+- UI discipline (for frontend tasks)
+- Code quality and safety
+- Protected areas (secrets, deployment, release workflows)
+
+For frontend tasks:
+- Read UI Design Context in .aidw/AI_project.md first
+- Inspect existing components, tokens, and theme directories
+- Reuse before writing new UI code
 
 # Output Rules
 
 - Do not write code unless the user explicitly requests implementation and confirms the task draft.
 - Do not skip clarification for vague requests.
-- Protocol is enforced internally; compact output is the default external presentation.
-- Use full protocol rendering only for confirmation, unresolved scope, test execution approval, destructive/write/external side effects, unresolved risks, audit/debug/review detail, or user request.
-- Default status updates should be short:
-  - `State: IMPLEMENT`
-  - `Changed: ...`
-  - `Tests: ...`
-  - `Risk: ...`
-- Default final reports should usually be:
-  - `Done: ...`
-  - `Tests: ...`
-  - `Note: ...`
-- Avoid repeated `## State` / `## Output` / `## Confirm` blocks unless an escalation trigger applies.
+- Compact output is default; expand only per escalation triggers in `.aidw/rules-canonical.md`.
+- Default status: `State: ...`, `Changed: ...`, `Tests: ...`, `Risk: ...`
+- Default final report: `Done: ...`, `Tests: ...`, `Note: ...`
+- Reference rules by name/section, not full text (e.g., "per Reuse First rule")
+

@@ -9,6 +9,7 @@ import {
     detectUtilityDirs,
 } from "./detectors/reusable-system.js";
 import { detectRiskAreas } from "./detectors/risk-areas.js";
+import { detectUISystem } from "./detectors/ui-system.js";
 import {
     CONTEXT_AI_PATH,
     CONTEXT_DIR,
@@ -38,6 +39,7 @@ import {
     detectTechStack,
     getLockfileFingerprints,
     getPackageJsonDigest,
+    getPackageJson,
 } from "./package-utils.js";
 import { buildTaskMap, updateProjectIndex } from "./indexers/project-index.js";
 import {
@@ -130,6 +132,8 @@ function buildProjectScanData() {
     const projectType = detectProjectType();
     const techStack = detectTechStack(projectType);
     const packageMetadata = detectPackageMetadata();
+    const packageJson = getPackageJson();
+    const uiSystem = detectUISystem(packageJson);
     const sharedUi = detectSharedUi();
     const utilityDirs = detectUtilityDirs();
     const reusableSystem = detectReusableSystem(
@@ -151,6 +155,7 @@ function buildProjectScanData() {
         projectType,
         techStack,
         packageMetadata,
+        uiSystem,
         reusableSystem,
         risks,
         mergedStructure,
@@ -164,6 +169,7 @@ export function generateProjectMdContent(scanData = buildProjectScanData()) {
         projectType,
         techStack,
         packageMetadata,
+        uiSystem,
         reusableSystem,
         risks,
         mergedStructure,
@@ -223,6 +229,39 @@ export function generateProjectMdContent(scanData = buildProjectScanData()) {
                 lines.push(`  - ${script.name}: ${script.command}`);
             }
         }
+    }
+
+    // Add UI Design Context section if detected
+    if (uiSystem && uiSystem.detected) {
+        lines.push("", "## UI Design Context");
+        
+        if (uiSystem.framework) {
+            lines.push(`- Framework: ${uiSystem.framework}`);
+        }
+        
+        if (uiSystem.styleSystems && uiSystem.styleSystems.length > 0) {
+            lines.push(`- Styling: ${uiSystem.styleSystems.join(", ")}`);
+        }
+        
+        if (uiSystem.componentLibraries && uiSystem.componentLibraries.length > 0) {
+            lines.push(`- Component Libraries: ${uiSystem.componentLibraries.join(", ")}`);
+            lines.push("  - Prefer reusing existing components before writing new UI");
+        }
+        
+        if (uiSystem.commonComponents && uiSystem.commonComponents.length > 0) {
+            lines.push(`- Common Components: ${uiSystem.commonComponents.join(", ")}`);
+        }
+        
+        if (uiSystem.themeTokens && uiSystem.themeTokens.length > 0) {
+            lines.push(`- Design Tokens: ${uiSystem.themeTokens.join(", ")}`);
+            lines.push("  - Reuse existing tokens for consistency (colors, spacing, sizing, shadows)");
+        }
+        
+        if (uiSystem.uiDirectories && uiSystem.uiDirectories.length > 0) {
+            lines.push(`- UI Locations: ${uiSystem.uiDirectories.join(", ")}`);
+        }
+        
+        lines.push("- Best Practice: Always inspect and reuse project UI system before writing new styles");
     }
 
     lines.push(

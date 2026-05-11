@@ -2,51 +2,45 @@
 
 Single workflow entry point for AI coding tools in this repository.
 
-## Project Context
+## Required Reading
 
-Primary human context: `PROJECT.md`.
-Generated AI context: `.aidw/AI_project.md`.
-Do not proceed without reading both when they exist.
+Primary sources:
+- `PROJECT.md` — Human-owned project context
+- `.aidw/AI_project.md` — Generated AI context (from scan)
 
-## Read first
-- PROJECT.md
-- .aidw/AI_project.md
-- .aidw/rules.md
-- .aidw/workflow.md
-- .aidw/safety.md
-- .aidw/system-overview.md
-- .aidw/task-entry.md
-- .aidw/confirmation-protocol.md
-- the current task file, when one exists
+Governance:
+- `.aidw/rules-canonical.md` — All rules and execution discipline (canonical source)
+- `.aidw/workflow.md` — AI-assisted development workflow
+- `.aidw/confirmation-protocol.md` — Click-to-confirm execution protocol
+- `.aidw/safety.md` — Protected areas and change safety rules
+- `.aidw/system-overview.md` — Available context sources
+- `.aidw/task-entry.md` — Task request template
 
-## Workflow role
+Current task:
+- `task/T-*.md` file when one exists (for UI context on frontend tasks: see `## UI Design Context` in `.aidw/AI_project.md`)
+
+## Workflow Role
+
 Classify requests into:
-- Clarify (vague): ask focused boundary questions, then stop
-- Implement (clear): draft a task → wait for confirmation → implement → verify
-- Review: refine an existing prompt/plan/task/implementation against Task/AC
+1. **Clarify** (vague) → ask focused boundary questions, then stop
+2. **Implement** (clear) → draft task → confirm → implement → verify
+3. **Review** → refine against Task/AC
 
-## Required behavior
-1. Understand the project before suggesting implementation
-2. Reuse first; keep changes minimal; preserve backward compatibility
-3. If vague: clarify only (no implementation)
-4. If clear: draft a task (Goal, Background, Scope, Requirements, Acceptance Criteria, Test Command, Definition of Done) and wait for confirmation
-5. After confirmation: implement and verify against acceptance criteria
-6. Review requests: review/refine against Task/AC (draft minimal Task/AC if missing)
+## Execution Model
 
-## Output presentation
-Protocol is enforced internally, but compact output is the default external presentation.
+1. Understand project: read PROJECT.md + .aidw/AI_project.md
+2. Read `.aidw/rules-canonical.md` for all rules (single source of truth)
+3. For frontend tasks: read UI Design Context
+4. Draft task (Goal, Background, Scope, Requirements, Acceptance Criteria, Test Command, DoD)
+5. Confirm before implementation
+6. Verify against acceptance criteria after implementation
 
-Default conversational output:
-- Use short status lines such as `State: IMPLEMENT`, `Changed: ...`, `Tests: ...`, `Risk: ...`.
-- Final reports should usually be three lines: `Done`, `Tests`, and `Note`.
-- Do not print full `## State` / `## Output` / `## Confirm` blocks during normal progress or completion.
-- Do not repeat stable safety facts unless they are relevant, violated, or requested.
-- Summarize changed areas instead of listing every file unless the user asks, many files changed, or audit/review mode is active.
+**Reference:** `.aidw/rules-canonical.md` for AI behavior constraints, prioritization order, and discipline.
 
-Expand to full protocol rendering only when confirmation is required, task scope is unresolved, tests are about to run, a destructive/write/external action needs approval, high-risk or unresolved risks exist, scope changes during execution, or the user requests audit/debug/review detail.
+---
 
-## Never
-- write code directly unless explicitly requested
-- skip clarification for ambiguous requests
-- create duplicate structures unnecessarily
-- perform unrelated refactors
+## Output Presentation
+
+Compact output is the default external presentation.
+
+Expand to full protocol rendering only when confirmation is required, task scope is unresolved, tests are about to run, a destructive/write/external action needs approval, high-risk or unresolved risks exist, scope changes during execution, or current task file is present.
