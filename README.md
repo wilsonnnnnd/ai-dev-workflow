@@ -148,6 +148,25 @@ repo-context-kit learn ingest --dry-run
 repo-context-kit check --explain
 ```
 
+## Context Doctor / Trace / Budget / Metrics
+
+Use these commands to inspect context quality, explain inclusion decisions, and observe token-budget behavior.
+
+```bash
+repo-context-kit context doctor --json
+repo-context-kit context brief
+repo-context-kit context trace T-001
+repo-context-kit context budget
+repo-context-kit metrics
+```
+
+What each command is for:
+
+- `context doctor`: checks context/index health and reports drift or missing/stale context artifacts.
+- `context trace <taskId>`: shows selected/excluded context, canonical references, and compression details for a task.
+- `context budget`: prints compact context budget allocation and compression totals.
+- `metrics`: prints machine-readable runtime context metrics (compression, duplication, reuse, relevance efficiency).
+
 Use `repo-context-kit --help --advanced` to see the full command surface.
 
 ## Advanced / Infrastructure
