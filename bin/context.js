@@ -11,6 +11,9 @@ import {
     CONTEXT_INDEX_SUMMARY_PATH,
     CONTEXT_INDEX_SYMBOLS_PATH,
     CONTEXT_PROJECT_MD_PATH,
+    RUNTIME_CONTEXT_PATH,
+    RUNTIME_TASK_PATH,
+    RUNTIME_VERIFICATION_PATH,
     TASK_REGISTRY_PATH,
 } from "../src/scan/constants.js";
 import { exists, listDirSafe, readJson, readText } from "../src/scan/fs-utils.js";
@@ -32,6 +35,7 @@ import {
     detectContextDrift,
     formatCompactJson,
 } from "../src/runtime/context-observability.js";
+import { serializeJson } from "../src/runtime/serialize.js";
 
 const LIMITS = {
     brief: {
@@ -626,6 +630,143 @@ function formatLoopDigest(options = {}) {
         `- top_failing_command: ${topFail}`,
         `- require_rca: ${result.constraints.requireRootCauseAnalysis ? "true" : "false"}`,
     ].join("\n");
+}
+
+function clampString(value, maxLength = 240) {
+    const text = String(value ?? "").trim();
+    if (text.length <= maxLength) {
+        return text;
+    }
+    return `${text.slice(0, Math.max(0, maxLength - 12)).trimEnd()} [truncated]`;
+}
+
+function capList(values, maxItems, mapper = (item) => item) {
+    const list = Array.isArray(values) ? values : [];
+    return list.slice(0, maxItems).map(mapper);
+}
+
+function loadRuntimeSnapshot() {
+    return {
+        context: readJson(RUNTIME_CONTEXT_PATH) || null,
+        task: readJson(RUNTIME_TASK_PATH) || null,
+        verification: readJson(RUNTIME_VERIFICATION_PATH) || null,
+    };
+}
+
+function toContextBriefJson() {
+    const runtime = loadRuntimeSnapshot();
+    const pkg = readJson("package.json") || {};
+    return {
+        schemaVersion: "runtime/v1",
+        interface: "cli",
+        kind: "context-brief",
+        repository: {
+            name: clampString(pkg.name || "-", 80),
+            version: clampString(pkg.version || "-", 40),
+        },
+        context: {
+            projectType: runtime.context?.payload?.projectType ?? null,
+            techStack: capList(runtime.context?.payload?.techStack, 12, (item) => clampString(item, 120)),
+            riskAreas: capList(runtime.context?.payload?.riskAreas, 12, (item) => clampString(item, 180)),
+            index: runtime.context?.payload?.index || {
+                indexedFiles: 0,
+                indexedSymbols: 0,
+                fileGroups: 0,
+                truncated: false,
+            },
+        },
+        verification: {
+            requiredChecks: capList(runtime.verification?.payload?.requiredChecks, 8, (item) => clampString(item, 120)),
+        },
+    };
+}
+
+function pickNextRuntimeTask(tasks) {
+    const list = Array.isArray(tasks) ? tasks : [];
+    const inProgress = list.find((task) => normalizeStatus(task?.status) === "in_progress");
+    if (inProgress) {
+        return inProgress;
+    }
+    return list.find((task) => normalizeStatus(task?.status) === "todo") || null;
+}
+
+function toNextTaskJson() {
+    const runtime = loadRuntimeSnapshot();
+    const tasks = Array.isArray(runtime.task?.payload?.tasks) ? runtime.task.payload.tasks : [];
+    const nextTask = pickNextRuntimeTask(tasks);
+    const counts = tasks.reduce(
+        (acc, task) => {
+            const status = normalizeStatus(task?.status);
+            if (status === "todo") acc.todo += 1;
+            else if (status === "in_progress") acc.in_progress += 1;
+            else if (status === "done") acc.done += 1;
+            else acc.other += 1;
+            return acc;
+        },
+        { todo: 0, in_progress: 0, done: 0, other: 0 },
+    );
+
+    return {
+        schemaVersion: "runtime/v1",
+        interface: "cli",
+        kind: "context-next-task",
+        nextTask: nextTask
+            ? {
+                  id: clampString(nextTask.id, 32),
+                  title: clampString(nextTask.title, 180),
+                  status: clampString(nextTask.status, 32),
+                  priority: clampString(nextTask.priority, 32),
+                  owner: clampString(nextTask.owner, 80),
+                  dependencies: capList(nextTask.dependencies, 16, (item) => clampString(item, 32)),
+                  file: nextTask.file || null,
+              }
+            : null,
+        taskCounts: counts,
+    };
+}
+
+function toWorksetJson(taskId, options = {}) {
+    const runtime = loadRuntimeSnapshot();
+    const tasks = Array.isArray(runtime.task?.payload?.tasks) ? runtime.task.payload.tasks : [];
+    const selectedTask = taskById({ tasks }, taskId);
+    const detail = options.detail || "compact";
+    const deep = Boolean(options.deep);
+    const baseLimit = detail === "full" ? 20 : detail === "digest" ? 6 : 10;
+    const fileLimit = deep ? Math.min(baseLimit + 8, 28) : baseLimit;
+    const entrypointLimit = deep ? 20 : 12;
+    const riskLimit = deep ? 16 : 10;
+
+    return {
+        schemaVersion: "runtime/v1",
+        interface: "cli",
+        kind: "context-workset",
+        task: selectedTask
+            ? {
+                  id: clampString(selectedTask.id, 32),
+                  title: clampString(selectedTask.title, 180),
+                  status: clampString(selectedTask.status, 32),
+                  priority: clampString(selectedTask.priority, 32),
+                  owner: clampString(selectedTask.owner, 80),
+                  dependencies: capList(selectedTask.dependencies, 16, (item) => clampString(item, 32)),
+                  file: selectedTask.file || null,
+              }
+            : null,
+        workset: {
+            detail,
+            deep,
+            files: capList(runtime.context?.payload?.topFiles, fileLimit, (file) => ({
+                path: clampString(file?.path, 240),
+                type: clampString(file?.type, 80),
+                description: clampString(file?.description, 180),
+            })),
+            entrypoints: capList(runtime.context?.payload?.entrypoints, entrypointLimit, (entry) => ({
+                name: clampString(entry?.name, 120),
+                path: clampString(entry?.path, 240),
+            })),
+            riskAreas: capList(runtime.context?.payload?.riskAreas, riskLimit, (item) => clampString(item, 180)),
+            requiredChecks: capList(runtime.verification?.payload?.requiredChecks, 8, (item) => clampString(item, 120)),
+        },
+    };
 }
 
 function buildBrief(options = {}) {
@@ -1265,70 +1406,9 @@ export async function runContext(args = []) {
     }
 
     if (subcommand === "brief") {
-        const loopResult = budget === "auto" || budget === "full"
-            ? evaluateContextLoop({ taskId: null })
-            : null;
-        const budgetUpgrade = Boolean(
-            (loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0) ||
-            loopResult?.constraints?.unstable ||
-            loopResult?.constraints?.requireRootCauseAnalysis,
-        );
-        const effectiveDigest = budget === "full" && !digestFlag ? false : digest;
-        const budgetVerbose = verbose || budget === "full" || (budgetUpgrade && budget === "auto");
-        const budgetRawLoop = rawLoop || budget === "full" || (budgetUpgrade && budget === "auto");
-        const upgradesApplied = [];
-        if (digest && effectiveDigest === false) upgradesApplied.push("digest-off");
-        if (!verbose && budgetVerbose) upgradesApplied.push("verbose");
-        if (!rawLoop && budgetRawLoop) upgradesApplied.push("raw-loop");
-        const reasonCodes = [];
-        const evidence = [];
-        if (loopResult?.mostRecentTest) {
-            const exitCode = Number(loopResult.mostRecentTest.exitCode);
-            const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
-            if (Number.isFinite(exitCode) && exitCode !== 0) reasonCodes.push("RECENT_TEST_FAIL");
-            if (command) evidence.push(`last_test_exit=${exitCode} command="${command}"`);
-            else evidence.push(`last_test_exit=${exitCode}`);
-        }
-        if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
-        if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
-
-        const budgetDecision = budget === "off"
-            ? null
-            : {
-                  mode: budget,
-                  decision: budget === "full" ? "FULL" : budgetUpgrade ? "EXCEPTION" : "DEFAULT",
-                  upgradesApplied,
-                  reasonCodes,
-                  evidence,
-              };
-        const cached = effectiveDigest && !noCache && !summaryJson && budget === "off" ? getCachedBriefDigest() : null;
-        if (cached) {
-            output = cached;
-        } else {
-            output = buildBrief({
-                digest: effectiveDigest,
-                manifest,
-                verbose: budgetVerbose,
-                rawLoop: budgetRawLoop,
-                summaryJson,
-                budget,
-                budgetDecision,
-                budgetFailureStreak: loopResult?.patterns?.failureStreak ?? null,
-                budgetSignalCount: reasonCodes.length,
-            });
-            if (effectiveDigest && !noCache && !summaryJson && budget === "off") {
-                writeBriefDigestCache(output);
-            }
-        }
+        output = serializeJson(toContextBriefJson());
     } else if (subcommand === "next-task") {
-        output = buildNextTask({
-            digest,
-            manifest,
-            verbose,
-            rawLoop,
-            budget,
-            digestLocked: digestFlag || full,
-        });
+        output = serializeJson(toNextTaskJson());
     } else if (subcommand === "workset") {
         const worksetIndex = args.indexOf(subcommand);
         const taskId = args.slice(worksetIndex + 1).find((arg) => !arg.startsWith("--"));
@@ -1340,16 +1420,8 @@ export async function runContext(args = []) {
                 process.exitCode = 1;
             }
         }
-        output = buildWorkset(taskId, {
-            deep,
-            digest: digestFlag || (!deep && !full),
-            manifest,
-            verbose,
-            rawLoop,
-            budget,
-            digestLocked: digestFlag || full,
-            deepLocked: deep,
-        });
+        const detail = full ? "full" : digest ? "digest" : "compact";
+        output = serializeJson(toWorksetJson(taskId, { deep, detail }));
     } else {
         console.error("Unknown context command.");
         console.log("Usage:");

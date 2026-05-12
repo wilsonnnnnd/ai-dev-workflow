@@ -456,6 +456,64 @@ test("MCP capability policy requires explicit opt-in by tier", () => {
     assert.equal(buildMcpCapabilityPolicy({ enableWrite: true, enableTests: true }).allows("test-exec"), true);
 });
 
+test("CLI context/task defaults are JSON-first, bounded, and avoid full .aidw markdown injection", async () => {
+    await withTempProject(async () => {
+        await withMutedConsole(() => runInit());
+        writeFile("package.json", JSON.stringify({ name: "context-diet", version: "0.0.0", type: "module" }, null, 4) + "\n");
+        writeFile("src/main.js", "export function main() { return 1; }\n");
+        writeFile("task/task.md", minimalRegistry());
+        writeFile("task/T-001-core-runtime.md", minimalTask());
+        await withMutedConsole(() => runScan());
+
+        const commands = [
+            ["context", "brief"],
+            ["context", "next-task"],
+            ["context", "workset", "T-001"],
+            ["task", "prompt", "T-001"],
+            ["task", "checklist", "T-001"],
+            ["task", "pr", "T-001"],
+        ];
+
+        for (const args of commands) {
+            process.exitCode = 0;
+            const { output } = await withCapturedConsole(() => runCliMain(args));
+            assert.equal(process.exitCode, 0, args.join(" "));
+            const text = output.join("\n").trim();
+            assert.ok(text.startsWith("{"), args.join(" "));
+            assert.ok(!text.startsWith("#"), args.join(" "));
+            assert.doesNotMatch(text, /\n##\s/);
+            assert.doesNotMatch(text, /\.aidw\/AI_project\.md|\.aidw\/workflow\.md|\.aidw\/rules-canonical\.md/);
+            let parsed;
+            try {
+                parsed = JSON.parse(text);
+            } catch {
+                assert.fail(`Expected JSON output: ${args.join(" ")}`);
+            }
+            assert.equal(parsed.schemaVersion, "runtime/v1", args.join(" "));
+            assert.equal(parsed.interface, "cli", args.join(" "));
+
+            if (args[0] === "context" && args[1] === "workset") {
+                assert.ok(Array.isArray(parsed.workset.files));
+                assert.ok(parsed.workset.files.length <= 10);
+                assert.ok(Array.isArray(parsed.workset.entrypoints));
+                assert.ok(parsed.workset.entrypoints.length <= 12);
+                assert.ok(Array.isArray(parsed.workset.riskAreas));
+                assert.ok(parsed.workset.riskAreas.length <= 10);
+            }
+
+            if (args[0] === "task" && args[1] === "prompt") {
+                assert.ok(Array.isArray(parsed.task.scope));
+                assert.ok(parsed.task.scope.length <= 16);
+                assert.ok(Array.isArray(parsed.task.requirements));
+                assert.ok(parsed.task.requirements.length <= 16);
+                assert.ok(Array.isArray(parsed.task.acceptanceCriteria));
+                assert.ok(parsed.task.acceptanceCriteria.length <= 16);
+                assert.equal(parsed.task.testCommand?.includes("```"), false);
+            }
+        }
+    });
+});
+
 test("README and package manifest reflect the hard slim surface", () => {
     const readme = fs.readFileSync(path.resolve(originalCwd, "README.md"), "utf-8");
     assert.match(readme, /Compact deterministic repository runtime for AI coding agents/);

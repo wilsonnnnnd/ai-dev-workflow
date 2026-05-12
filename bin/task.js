@@ -7,10 +7,12 @@ import {
     CONTEXT_SYSTEM_OVERVIEW_PATH,
     CONTEXT_TASKS_PATH,
     HUMAN_PROJECT_BRIEF_PATH,
+    RUNTIME_CONTEXT_PATH,
     RUNTIME_TASK_PATH,
+    RUNTIME_VERIFICATION_PATH,
     TASK_REGISTRY_PATH,
 } from "../src/scan/constants.js";
-import { exists, isDirectory, listDirSafe, readText, writeText } from "../src/scan/fs-utils.js";
+import { exists, isDirectory, listDirSafe, readJson, readText, writeText } from "../src/scan/fs-utils.js";
 import { evaluateContextLoop } from "../src/loop/analyze.js";
 import { appendLoopEvent } from "../src/loop/store.js";
 import { resolveBudgetMode } from "../src/budget/policy.js";
@@ -868,6 +870,174 @@ function summarizeTaskDetailForPrompt(taskDetail) {
 
     const joined = sections.join("\n\n");
     return joined.length > 6000 ? `${joined.slice(0, 5985).trimEnd()}\n[truncated]` : joined;
+}
+
+function clampString(value, maxLength = 240) {
+    const text = String(value ?? "").trim();
+    if (text.length <= maxLength) {
+        return text;
+    }
+    return `${text.slice(0, Math.max(0, maxLength - 12)).trimEnd()} [truncated]`;
+}
+
+function capList(values, maxItems, mapper = (item) => item) {
+    const list = Array.isArray(values) ? values : [];
+    return list.slice(0, maxItems).map(mapper);
+}
+
+function parseSectionListBounded(content, heading, maxItems = 16, maxItemChars = 220) {
+    return extractMarkdownListItems(extractSection(content, heading), { maxItems, maxItemChars });
+}
+
+function normalizeSectionCommand(text) {
+    const raw = String(text ?? "").trim();
+    if (!raw) return "";
+    const stripped = raw
+        .replace(/^```[a-zA-Z0-9_-]*\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+    const oneLine = stripped.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join(" ; ");
+    return clampString(oneLine, 320);
+}
+
+function loadRuntimeSnapshot() {
+    return {
+        task: readJson(RUNTIME_TASK_PATH) || null,
+        context: readJson(RUNTIME_CONTEXT_PATH) || null,
+        verification: readJson(RUNTIME_VERIFICATION_PATH) || null,
+    };
+}
+
+function findRuntimeTask(taskId) {
+    const runtime = loadRuntimeSnapshot();
+    const tasks = Array.isArray(runtime.task?.payload?.tasks) ? runtime.task.payload.tasks : [];
+    const selected = tasks.find((task) => String(task?.id ?? "").trim().toUpperCase() === String(taskId ?? "").trim().toUpperCase()) || null;
+    return { runtime, selected };
+}
+
+function buildTaskWorkset(runtime, options = {}) {
+    const deep = Boolean(options.deep);
+    const detail = options.detail || (deep ? "full" : "compact");
+    const baseLimit = detail === "full" ? 20 : detail === "digest" ? 6 : 10;
+    const fileLimit = deep ? Math.min(baseLimit + 8, 28) : baseLimit;
+    return {
+        detail,
+        deep,
+        files: capList(runtime.context?.payload?.topFiles, fileLimit, (file) => ({
+            path: clampString(file?.path, 240),
+            type: clampString(file?.type, 80),
+            description: clampString(file?.description, 180),
+        })),
+        entrypoints: capList(runtime.context?.payload?.entrypoints, deep ? 20 : 12, (entry) => ({
+            name: clampString(entry?.name, 120),
+            path: clampString(entry?.path, 240),
+        })),
+        riskAreas: capList(runtime.context?.payload?.riskAreas, deep ? 16 : 10, (item) => clampString(item, 180)),
+    };
+}
+
+function toPromptJson(taskId, options = {}) {
+    const normalizedId = normalizeTaskId(taskId);
+    const { runtime, selected } = findRuntimeTask(normalizedId);
+    if (!selected) {
+        return {
+            schemaVersion: "runtime/v1",
+            interface: "cli",
+            kind: "task-prompt",
+            error: `task not found: ${normalizedId}`,
+        };
+    }
+    const warnings = [];
+    const detail = readTaskDetail(selected, warnings);
+    return {
+        schemaVersion: "runtime/v1",
+        interface: "cli",
+        kind: "task-prompt",
+        task: {
+            id: clampString(selected.id, 32),
+            title: clampString(selected.title, 180),
+            status: clampString(selected.status, 32),
+            priority: clampString(selected.priority, 32),
+            owner: clampString(selected.owner, 80),
+            dependencies: capList(selected.dependencies, 16, (item) => clampString(item, 32)),
+            file: selected.file || null,
+            goal: clampString(extractSection(detail, "Goal"), 900) || null,
+            scope: parseSectionListBounded(detail, "Scope", 16, 220),
+            requirements: parseSectionListBounded(detail, "Requirements", 16, 220),
+            acceptanceCriteria: parseSectionListBounded(detail, "Acceptance Criteria", 16, 220),
+            testCommand: normalizeSectionCommand(extractSection(detail, "Test Command")) || null,
+            hardBoundaries: parseSectionListBounded(detail, "Hard Boundaries", 12, 220),
+            confirmationPoints: parseSectionListBounded(detail, "Confirmation Points", 12, 220),
+        },
+        workset: buildTaskWorkset(runtime, { deep: options.deep, detail: options.deep ? "full" : "compact" }),
+        verification: {
+            requiredChecks: capList(runtime.verification?.payload?.requiredChecks, 8, (item) => clampString(item, 120)),
+        },
+        warnings: capList(warnings, 6, (item) => clampString(item, 180)),
+    };
+}
+
+function toChecklistJson(taskId, options = {}) {
+    const normalizedId = normalizeTaskId(taskId);
+    const { runtime, selected } = findRuntimeTask(normalizedId);
+    if (!selected) {
+        return {
+            schemaVersion: "runtime/v1",
+            interface: "cli",
+            kind: "task-checklist",
+            error: `task not found: ${normalizedId}`,
+        };
+    }
+    const warnings = [];
+    const detail = readTaskDetail(selected, warnings);
+    return {
+        schemaVersion: "runtime/v1",
+        interface: "cli",
+        kind: "task-checklist",
+        task: {
+            id: clampString(selected.id, 32),
+            title: clampString(selected.title, 180),
+        },
+        checklist: {
+            acceptanceCriteria: parseSectionListBounded(detail, "Acceptance Criteria", 16, 220),
+            definitionOfDone: parseSectionListBounded(detail, "Definition of Done", 16, 220),
+            requiredChecks: capList(runtime.verification?.payload?.requiredChecks, 8, (item) => clampString(item, 120)),
+            suggestedReadFiles: capList(runtime.context?.payload?.topFiles, options.deep ? 12 : 8, (file) => clampString(file?.path, 240)),
+        },
+        warnings: capList(warnings, 6, (item) => clampString(item, 180)),
+    };
+}
+
+function toPrJson(taskId, options = {}) {
+    const normalizedId = normalizeTaskId(taskId);
+    const { runtime, selected } = findRuntimeTask(normalizedId);
+    if (!selected) {
+        return {
+            schemaVersion: "runtime/v1",
+            interface: "cli",
+            kind: "task-pr-framing",
+            error: `task not found: ${normalizedId}`,
+        };
+    }
+    const warnings = [];
+    const detail = readTaskDetail(selected, warnings);
+    return {
+        schemaVersion: "runtime/v1",
+        interface: "cli",
+        kind: "task-pr-framing",
+        pr: {
+            title: `${clampString(selected.id, 32)} ${clampString(selected.title, 180)}`,
+            summary: clampString(extractSection(detail, "Goal"), 900) || null,
+            scope: parseSectionListBounded(detail, "Scope", 16, 220),
+            verification: {
+                acceptanceCriteria: parseSectionListBounded(detail, "Acceptance Criteria", 16, 220),
+                requiredChecks: capList(runtime.verification?.payload?.requiredChecks, 8, (item) => clampString(item, 120)),
+                warnings: capList(runtime.verification?.payload?.warnings, 8, (item) => clampString(item, 180)),
+            },
+        },
+        workset: buildTaskWorkset(runtime, { deep: options.deep, detail: options.deep ? "full" : "compact" }),
+        warnings: capList(warnings, 6, (item) => clampString(item, 180)),
+    };
 }
 
 function buildTaskPrDescription(taskId, options = {}) {
@@ -1734,17 +1904,7 @@ export async function runTask(args = []) {
         if (!prOk) {
             process.exitCode = 1;
         }
-        const output = buildTaskPrDescription(taskId, {
-            deep: deepLocked,
-            fullWorkset,
-            manifest,
-            verbose,
-            budget,
-            deepLocked,
-            fullWorksetLocked,
-            manifestLocked,
-            verboseLocked,
-        });
+        const output = serializeJson(toPrJson(taskId, { deep: deepLocked }));
 
         console.log(output.trimEnd());
 
@@ -1759,17 +1919,7 @@ export async function runTask(args = []) {
         if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
             process.exitCode = 1;
         }
-        const output = buildTaskChecklist(taskId, {
-            deep: deepLocked,
-            fullWorkset,
-            manifest,
-            verbose,
-            budget,
-            deepLocked,
-            fullWorksetLocked,
-            manifestLocked,
-            verboseLocked,
-        });
+        const output = serializeJson(toChecklistJson(taskId, { deep: deepLocked }));
 
         console.log(output.trimEnd());
 
@@ -1784,21 +1934,7 @@ export async function runTask(args = []) {
         if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
             process.exitCode = 1;
         }
-        const output = buildTaskPrompt(taskId, {
-            deep: deepLocked,
-            fullWorkset,
-            fullDetail,
-            compact,
-            manifest,
-            verbose,
-            budget,
-            deepLocked,
-            fullWorksetLocked,
-            fullDetailLocked,
-            compactLocked,
-            manifestLocked,
-            verboseLocked,
-        });
+        const output = serializeJson(toPromptJson(taskId, { deep: deepLocked }));
 
         console.log(output.trimEnd());
 
