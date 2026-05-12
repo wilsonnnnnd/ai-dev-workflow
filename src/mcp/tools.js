@@ -4,8 +4,10 @@ import { spawnCli, isValidToken } from "./spawn-cli.js";
 import { validateGate } from "../gate/state.js";
 import { loadGateState } from "../gate/state.js";
 import { validateRuntimeContract } from "../runtime/runtime-schema.js";
-import { serializeJson } from "../runtime/serialize.js";
+import { budgetJsonPayload, CONTEXT_BUDGET } from "../runtime/context-budget.js";
+import { serializeCompactJson } from "../runtime/serialize.js";
 import { buildRuntimeMetrics } from "../runtime/context-observability.js";
+import { computeScanCheckState } from "../scan/index.js";
 
 function asTextResult(text) {
     return {
@@ -19,7 +21,7 @@ function asTextResult(text) {
 }
 
 function asJsonResult(payload) {
-    return asTextResult(serializeJson(payload));
+    return asTextResult(serializeCompactJson(budgetJsonPayload(payload, { maxPayloadBytes: CONTEXT_BUDGET.maxPayloadBytes })));
 }
 
 export const MCP_CAPABILITY_TIERS = Object.freeze({
@@ -523,8 +525,20 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests, enableExterna
             "Check whether runtime JSON and indexes are current.",
             { type: "object", additionalProperties: false, properties: {} },
             async () => {
-                const result = await runCli({ rootDir, args: ["scan", "--check"] });
-                return asTextResult(result.stdout || result.stderr);
+                const state = computeScanCheckState();
+                return asJsonResult({
+                    schemaVersion: "runtime/v1",
+                    interface: "mcp",
+                    scanCheck: {
+                        changed: Boolean(state.update?.changed),
+                        skipped: Boolean(state.update?.skipped),
+                        projectChanged: Boolean(state.update?.projectChanged),
+                        systemOverviewChanged: Boolean(state.update?.systemOverviewChanged),
+                        taskMapChanged: Boolean(state.update?.taskMapChanged),
+                        taskRegistryChanged: Boolean(state.update?.taskRegistryChanged),
+                        runtimeChanged: state.update?.runtimeChanged ?? null,
+                    },
+                });
             },
         ),
         tool(
@@ -546,7 +560,7 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests, enableExterna
             },
             async (args) => {
                 const input = normalizeArgs(args);
-                return asTextResult(serializeJson(validateRuntimeContract(input.contract)));
+                return asJsonResult(validateRuntimeContract(input.contract));
             },
         ),
         tool(
@@ -563,7 +577,7 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests, enableExterna
                 const filePath = normalizeRepoRelativePath(input.path);
                 const summaries = loadJsonIndex(rootDir, ".aidw/index/file-summaries.json", []);
                 const found = Array.isArray(summaries) ? summaries.find((item) => item.path === filePath) : null;
-                return asTextResult(serializeJson(found ?? { path: filePath, found: false }));
+                return asJsonResult(found ?? { path: filePath, found: false });
             },
         ),
         tool(
@@ -585,7 +599,7 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests, enableExterna
                           .filter((item) => `${item.path ?? ""} ${item.description ?? ""} ${item.type ?? ""}`.toLowerCase().includes(query))
                           .slice(0, limit)
                     : [];
-                return asTextResult(serializeJson({ query, matches }));
+                return asJsonResult({ query, matches });
             },
         ),
         tool(
@@ -607,7 +621,7 @@ export function buildMcpTools({ rootDir, enableWrite, enableTests, enableExterna
                           .filter((item) => `${item.name ?? ""} ${item.file ?? ""} ${item.description ?? ""}`.toLowerCase().includes(query))
                           .slice(0, limit)
                     : [];
-                return asTextResult(serializeJson({ query, matches }));
+                return asJsonResult({ query, matches });
             },
         ),
     );

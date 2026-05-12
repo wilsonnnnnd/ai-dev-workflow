@@ -74,6 +74,11 @@ export function serializeJson(value, options = {}) {
     return `${JSON.stringify(canonical, null, indent)}\n`;
 }
 
+export function serializeCompactJson(value) {
+    const canonical = canonicalize(value);
+    return `${JSON.stringify(canonical)}\n`;
+}
+
 export function serializeRuntimeContract(contract) {
     const canonical = canonicalizePreserve(contract);
     return `${JSON.stringify(canonical, null, 4)}\n`;

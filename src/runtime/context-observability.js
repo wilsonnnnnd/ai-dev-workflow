@@ -11,6 +11,8 @@ import { exists, readJson, readText } from "../scan/fs-utils.js";
 import { parseTaskRegistry } from "../scan/task-registry.js";
 import { computeContextHash, detectSemanticDuplication } from "./context-compression.js";
 import { rankFilesForContext } from "./context-relevance.js";
+import { budgetJsonPayload, CONTEXT_BUDGET } from "./context-budget.js";
+import { serializeCompactJson } from "./serialize.js";
 
 function stableString(value) {
     return String(value ?? "").trim();
@@ -353,5 +355,5 @@ export function buildVolatilityPlan(taskId) {
 }
 
 export function formatCompactJson(payload) {
-    return JSON.stringify(payload, null, 2);
+    return serializeCompactJson(budgetJsonPayload(payload, { maxPayloadBytes: CONTEXT_BUDGET.maxPayloadBytes }));
 }

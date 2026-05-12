@@ -27,26 +27,18 @@ import {
     resolveTaskFilePath,
 } from "../src/scan/task-registry.js";
 import { extractMarkdownListItems } from "../src/docs/doc-extractor.js";
-import { serializeJson } from "../src/runtime/serialize.js";
+import { serializeCompactJson } from "../src/runtime/serialize.js";
 import { getRepoRoot } from "../src/runtime/root-context.js";
 import { stableStringCompare } from "../src/runtime/stable-sort.js";
 import { computeContextHash, scoreContextCacheability } from "../src/runtime/context-compression.js";
 import { buildVolatilityPlan } from "../src/runtime/context-observability.js";
+import { CONTEXT_BUDGET } from "../src/runtime/context-budget.js";
 
 const TASK_DIR = "task";
 const DOC_TASK_LIMIT = 10;
-const PROMPT_LIMITS = {
-    default: 20000,
-    deep: 28000,
-};
-const CHECKLIST_LIMITS = {
-    default: 14000,
-    deep: 20000,
-};
-const PR_LIMITS = {
-    default: 14000,
-    deep: 20000,
-};
+const PROMPT_LIMITS = CONTEXT_BUDGET.task.prompt;
+const CHECKLIST_LIMITS = CONTEXT_BUDGET.task.checklist;
+const PR_LIMITS = CONTEXT_BUDGET.task.pr;
 
 function maybeAppendLearnableTaskEvent(event) {
     if (!isDirectory(".aidw")) {
@@ -1904,7 +1896,7 @@ export async function runTask(args = []) {
         if (!prOk) {
             process.exitCode = 1;
         }
-        const output = serializeJson(toPrJson(taskId, { deep: deepLocked }));
+        const output = serializeCompactJson(toPrJson(taskId, { deep: deepLocked }));
 
         console.log(output.trimEnd());
 
@@ -1919,7 +1911,7 @@ export async function runTask(args = []) {
         if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
             process.exitCode = 1;
         }
-        const output = serializeJson(toChecklistJson(taskId, { deep: deepLocked }));
+        const output = serializeCompactJson(toChecklistJson(taskId, { deep: deepLocked }));
 
         console.log(output.trimEnd());
 
@@ -1934,7 +1926,7 @@ export async function runTask(args = []) {
         if (!taskId || !registry.exists || !findTaskById(registry, taskId)) {
             process.exitCode = 1;
         }
-        const output = serializeJson(toPromptJson(taskId, { deep: deepLocked }));
+        const output = serializeCompactJson(toPromptJson(taskId, { deep: deepLocked }));
 
         console.log(output.trimEnd());
 

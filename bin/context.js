@@ -28,6 +28,7 @@ import { getCachedBriefDigest, writeBriefDigestCache } from "../src/loop/context
 import { generateContextBrief, formatContextBriefCompact } from "../src/runtime/context-brief.js";
 import { computeContextHash, scoreContextCacheability } from "../src/runtime/context-compression.js";
 import { rankFilesForContext } from "../src/runtime/context-relevance.js";
+import { CONTEXT_BUDGET } from "../src/runtime/context-budget.js";
 import {
     buildContextBudget,
     buildContextTrace,
@@ -35,41 +36,9 @@ import {
     detectContextDrift,
     formatCompactJson,
 } from "../src/runtime/context-observability.js";
-import { serializeJson } from "../src/runtime/serialize.js";
+import { serializeCompactJson } from "../src/runtime/serialize.js";
 
-const LIMITS = {
-    brief: {
-        maxChars: 8000,
-    },
-    "next-task": {
-        maxChars: 12000,
-        maxDependencySummaries: 3,
-    },
-    workset: {
-        maxChars: 16000,
-        maxRelatedFiles: 12,
-        maxRelatedSymbols: 30,
-        maxDependencySummaries: 3,
-        maxFileSummaryFiles: 6,
-        maxFileSummaryChars: 2400,
-    },
-    "workset-deep": {
-        maxChars: 24000,
-        maxRelatedFiles: 24,
-        maxRelatedSymbols: 60,
-        maxDependencySummaries: 3,
-        maxFileSummaryFiles: 10,
-        maxFileSummaryChars: 3600,
-    },
-    "workset-digest": {
-        maxChars: 7000,
-        maxRelatedFiles: 6,
-        maxRelatedSymbols: 8,
-        maxDependencySummaries: 3,
-        maxFileSummaryFiles: 4,
-        maxFileSummaryChars: 1200,
-    },
-};
+const LIMITS = CONTEXT_BUDGET.context;
 
 function readTextSafe(filePath) {
     if (!exists(filePath)) {
@@ -1406,9 +1375,9 @@ export async function runContext(args = []) {
     }
 
     if (subcommand === "brief") {
-        output = serializeJson(toContextBriefJson());
+        output = serializeCompactJson(toContextBriefJson());
     } else if (subcommand === "next-task") {
-        output = serializeJson(toNextTaskJson());
+        output = serializeCompactJson(toNextTaskJson());
     } else if (subcommand === "workset") {
         const worksetIndex = args.indexOf(subcommand);
         const taskId = args.slice(worksetIndex + 1).find((arg) => !arg.startsWith("--"));
@@ -1421,7 +1390,7 @@ export async function runContext(args = []) {
             }
         }
         const detail = full ? "full" : digest ? "digest" : "compact";
-        output = serializeJson(toWorksetJson(taskId, { deep, detail }));
+        output = serializeCompactJson(toWorksetJson(taskId, { deep, detail }));
     } else {
         console.error("Unknown context command.");
         console.log("Usage:");

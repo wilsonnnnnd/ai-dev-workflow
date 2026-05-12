@@ -8,6 +8,8 @@ import { runInit } from "../bin/init.js";
 import { runScan } from "../bin/scan.js";
 import { createMcpServer } from "../src/mcp/server.js";
 import { MCP_CAPABILITY_TIERS, buildMcpCapabilityPolicy } from "../src/mcp/tools.js";
+import { CONTEXT_BUDGET, budgetJsonPayload } from "../src/runtime/context-budget.js";
+import { serializeCompactJson } from "../src/runtime/serialize.js";
 
 const originalCwd = process.cwd();
 
@@ -94,6 +96,13 @@ npm test
 `;
 }
 
+function assertCompactJsonText(text, message) {
+    const trimmed = String(text ?? "").trim();
+    const parsed = JSON.parse(trimmed);
+    assert.equal(trimmed, JSON.stringify(parsed), message);
+    assert.ok(Buffer.byteLength(trimmed, "utf8") <= CONTEXT_BUDGET.maxPayloadBytes, message);
+}
+
 async function withMcpServer(options, callback) {
     const args = options.args || [];
     const getFlag = (name) => args.includes(name);
@@ -145,12 +154,14 @@ async function callMcpTool(request, name, args = {}) {
     const trimmed = text.trimStart();
     assert.ok(trimmed.startsWith("{"), `tool output must be JSON object text: ${name}`);
     assert.ok(!trimmed.startsWith("#"), `tool output must not be markdown document text: ${name}`);
+    assert.ok(Buffer.byteLength(text, "utf8") <= CONTEXT_BUDGET.maxPayloadBytes, `tool output exceeds byte budget: ${name}`);
     let parsed;
     try {
         parsed = JSON.parse(text);
     } catch {
         assert.fail(`tool output is not JSON: ${name}`);
     }
+    assertCompactJsonText(text, name);
     assert.equal(typeof parsed, "object", `parsed payload must be object: ${name}`);
     assert.notEqual(parsed, null, `parsed payload must not be null: ${name}`);
     return { parsed, text };
@@ -246,7 +257,9 @@ test("scan writes runtime/v1 JSON and core context/task commands remain usable",
             process.exitCode = 0;
             const { output } = await withCapturedConsole(() => runCliMain(args));
             assert.equal(process.exitCode, 0, args.join(" "));
-            assert.ok(output.join("\n").trim().length > 0, args.join(" "));
+            const text = output.join("\n").trim();
+            assert.ok(text.length > 0, args.join(" "));
+            assertCompactJsonText(`${text}\n`, args.join(" "));
         }
     });
 });
@@ -364,6 +377,8 @@ test("MCP read tools return bounded runtime/v1 JSON without CLI shell transport"
                 assert.equal(repoSummary.parsed.interface, "mcp");
                 assert.equal(repoSummary.parsed.repository.name, "mcp-json-contract");
                 assert.equal(repoSummary.parsed.runtime.taskFile, ".aidw/runtime/task.json");
+                const repoSummaryRepeat = await callMcpTool(request, "rck.repo.summary");
+                assert.equal(repoSummaryRepeat.text, repoSummary.text);
 
                 const contextBrief = await callMcpTool(request, "rck.context.brief");
                 assert.equal(contextBrief.parsed.schemaVersion, "runtime/v1");
@@ -373,6 +388,8 @@ test("MCP read tools return bounded runtime/v1 JSON without CLI shell transport"
                 assert.ok(contextBrief.parsed.context.riskAreas.length <= 12);
                 assert.ok(Array.isArray(contextBrief.parsed.verification.requiredChecks));
                 assert.ok(contextBrief.parsed.verification.requiredChecks.length <= 8);
+                const contextBriefRepeat = await callMcpTool(request, "rck.context.brief");
+                assert.equal(contextBriefRepeat.text, contextBrief.text);
 
                 const nextTask = await callMcpTool(request, "rck.context.nextTask");
                 assert.equal(nextTask.parsed.schemaVersion, "runtime/v1");
@@ -442,6 +459,13 @@ test("MCP read tools return bounded runtime/v1 JSON without CLI shell transport"
                 assert.equal(gateStatus.parsed.interface, "mcp");
                 assert.equal(typeof gateStatus.parsed.gate, "object");
                 assert.notEqual(gateStatus.parsed.gate, null);
+
+                const scanCheck = await callMcpTool(request, "rck.scan.check");
+                assert.equal(scanCheck.parsed.schemaVersion, "runtime/v1");
+                assert.equal(scanCheck.parsed.interface, "mcp");
+                assert.equal(typeof scanCheck.parsed.scanCheck, "object");
+                assert.equal(scanCheck.parsed.scanCheck.changed, false);
+                assert.equal(scanCheck.parsed.scanCheck.skipped, false);
             },
         );
 
@@ -489,6 +513,7 @@ test("CLI context/task defaults are JSON-first, bounded, and avoid full .aidw ma
             } catch {
                 assert.fail(`Expected JSON output: ${args.join(" ")}`);
             }
+            assertCompactJsonText(text, args.join(" "));
             assert.equal(parsed.schemaVersion, "runtime/v1", args.join(" "));
             assert.equal(parsed.interface, "cli", args.join(" "));
 
@@ -512,6 +537,41 @@ test("CLI context/task defaults are JSON-first, bounded, and avoid full .aidw ma
             }
         }
     });
+});
+
+test("runtime budget helper truncates oversized payloads deterministically", () => {
+    const payload = {
+        schemaVersion: "runtime/v1",
+        z: "z".repeat(5000),
+        a: Array.from({ length: 100 }, (_, index) => `item-${index}`),
+        nested: {
+            c: Array.from({ length: 100 }, (_, index) => index),
+            b: "b".repeat(4000),
+        },
+    };
+
+    const budgeted = budgetJsonPayload(payload, {
+        maxArrayItems: 5,
+        maxStringLength: 64,
+        maxNestedDepth: 4,
+        maxPayloadBytes: 700,
+    });
+    const budgetedText = serializeCompactJson(budgeted);
+    const budgetedRepeat = budgetJsonPayload(payload, {
+        maxArrayItems: 5,
+        maxStringLength: 64,
+        maxNestedDepth: 4,
+        maxPayloadBytes: 700,
+    });
+
+    assert.ok(Buffer.byteLength(budgetedText, "utf8") <= 700);
+    assert.deepEqual(Object.keys(budgeted), ["a", "nested", "schemaVersion", "z"]);
+    assert.ok(Array.isArray(budgeted.a));
+    assert.ok(budgeted.a.length <= 5);
+    assert.ok(Array.isArray(budgeted.nested.c));
+    assert.ok(budgeted.nested.c.length <= 5);
+    assert.ok(budgeted.z.length <= 64);
+    assert.equal(serializeCompactJson(budgetedRepeat), budgetedText);
 });
 
 test("README and package manifest reflect the hard slim surface", () => {
