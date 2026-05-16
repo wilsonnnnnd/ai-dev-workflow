@@ -22,7 +22,6 @@ import { getRegistryStatusBreakdown, parseTaskRegistry, resolveTaskFilePath } fr
 import { getPreferredTaskRegistry } from "../src/runtime/json-core.js";
 import { formatLoopEventsMarkdown, listRecentLoopEvents } from "../src/loop/store.js";
 import { evaluateContextLoop } from "../src/loop/analyze.js";
-import { resolveBudgetMode } from "../src/budget/policy.js";
 import { formatBudgetDecisionMarkdown } from "../src/budget/decision.js";
 import { getCachedBriefDigest, writeBriefDigestCache } from "../src/loop/context-cache.js";
 import { generateContextBrief, formatContextBriefCompact } from "../src/runtime/context-brief.js";
@@ -926,113 +925,6 @@ function buildTaskContext(task, registry, level, limits, warnings, options = {})
     };
 }
 
-function buildNextTask(options = {}) {
-    const warnings = [];
-    const registry = getPreferredTaskRegistry();
-    warnings.push(...findTaskFileMismatchWarnings(registry));
-    let digest = Boolean(options.digest);
-
-    if (!registry.exists) {
-        return renderBounded(["# Next Work", "No task registry is available.", "Provide task/task.md or run repository initialization before requesting task context."], {
-            level: "next-task",
-            taskId: null,
-            includedSources: [],
-            excludedSources: ["task/*.md task detail files", "generated indexes"],
-            limits: `maxChars=${LIMITS["next-task"].maxChars}, maxDependencySummaries=${LIMITS["next-task"].maxDependencySummaries}`,
-            warnings,
-        }, LIMITS["next-task"].maxChars);
-    }
-
-    const task = selectNextTask(registry);
-    if (!task) {
-        return renderBounded([
-            "# Next Work",
-            "No ready task found.",
-            "",
-            "You can:",
-            "- Provide task/task.md or task/T-*.md files.",
-            "- Run repo-context-kit scan after task files exist.",
-        ], {
-            level: "next-task",
-            taskId: null,
-            includedSources: [TASK_REGISTRY_PATH],
-            excludedSources: ["task/*.md task detail files", "generated indexes"],
-            limits: `maxChars=${LIMITS["next-task"].maxChars}, maxDependencySummaries=${LIMITS["next-task"].maxDependencySummaries}`,
-            warnings,
-        }, LIMITS["next-task"].maxChars);
-    }
-
-    const loopResult = options.budget === "auto" || options.budget === "full"
-        ? evaluateContextLoop({ taskId: task.id })
-        : null;
-    const hasFailedTest = Boolean(loopResult?.mostRecentTest && Number(loopResult.mostRecentTest.exitCode) !== 0);
-    const exceptionBudget = Boolean(hasFailedTest || loopResult?.constraints?.unstable || loopResult?.constraints?.requireRootCauseAnalysis);
-
-    if (options.budget === "full" && !options.digestLocked) {
-        digest = false;
-    } else if (options.budget === "auto" && exceptionBudget && !options.digestLocked) {
-        digest = false;
-    }
-
-    const rawLoop = Boolean(options.rawLoop) || (exceptionBudget && options.budget === "auto") || options.budget === "full";
-    const verbose = Boolean(options.verbose) || (exceptionBudget && options.budget === "auto") || options.budget === "full";
-    const upgradesApplied = [];
-    if (Boolean(options.digest) && digest === false) upgradesApplied.push("digest-off");
-    if (!options.verbose && verbose) upgradesApplied.push("verbose");
-    if (!options.rawLoop && rawLoop) upgradesApplied.push("raw-loop");
-
-    const reasonCodes = [];
-    const evidence = [];
-    if (loopResult?.mostRecentTest) {
-        const exitCode = Number(loopResult.mostRecentTest.exitCode);
-        const command = loopResult.mostRecentTest.command ? String(loopResult.mostRecentTest.command) : "";
-        if (Number.isFinite(exitCode) && exitCode !== 0) reasonCodes.push("RECENT_TEST_FAIL");
-        if (command) evidence.push(`last_test_exit=${exitCode} command="${command}"`);
-        else evidence.push(`last_test_exit=${exitCode}`);
-    }
-    if (loopResult?.constraints?.unstable) reasonCodes.push("FAILURE_STREAK");
-    if (loopResult?.constraints?.requireRootCauseAnalysis) reasonCodes.push("REQUIRE_RCA");
-
-    const effectiveOptions = {
-        ...options,
-        digest,
-        verbose,
-        rawLoop,
-        budgetFailureStreak: loopResult?.patterns?.failureStreak ?? null,
-        budgetSignalCount: reasonCodes.length,
-        budgetDecision: {
-            mode: options.budget,
-            decision: options.budget === "full" ? "FULL" : exceptionBudget ? "EXCEPTION" : "DEFAULT",
-            upgradesApplied,
-            reasonCodes,
-            evidence,
-        },
-    };
-
-    const taskContext = buildTaskContext(task, registry, "next-task", LIMITS["next-task"], warnings, effectiveOptions);
-    taskContext.parts.splice(1, 0, [
-        "Ready for AI context preparation.",
-        "",
-        "Next:",
-        `- Generate AI prompt: repo-context-kit task prompt ${task.id}`,
-        `- View focused context: repo-context-kit context workset ${task.id}`,
-    ].join("\n"));
-
-    return renderBounded(taskContext.parts, {
-        level: "next-task",
-        taskId: task.id,
-        includedSources: taskContext.includedSources,
-        excludedSources: [
-            "unselected task detail files",
-            CONTEXT_INDEX_FILES_PATH,
-            CONTEXT_INDEX_SYMBOLS_PATH,
-            "full generated indexes",
-        ],
-        limits: `maxChars=${LIMITS["next-task"].maxChars}, maxDependencySummaries=${LIMITS["next-task"].maxDependencySummaries}`,
-        warnings,
-    }, LIMITS["next-task"].maxChars, effectiveOptions);
-}
-
 function selectDigestSymbols(symbols = [], maxTotal = 8) {
     const picked = [];
     const seenFiles = new Set();
@@ -1354,12 +1246,6 @@ export async function runContext(args = []) {
     const digestFlag = args.includes("--digest");
     const full = args.includes("--full");
     const digest = compact || digestFlag || !full;
-    const manifest = args.includes("--manifest");
-    const verbose = args.includes("--verbose");
-    const rawLoop = args.includes("--raw-loop");
-    const summaryJson = args.includes("--summary-json");
-    const budget = resolveBudgetMode(args);
-    const noCache = args.includes("--no-cache");
     let output;
 
     if (subcommand === "help" || args.includes("--help")) {
@@ -1371,8 +1257,6 @@ export async function runContext(args = []) {
         console.log("Options:");
         console.log("  --compact    Prefer bounded digest output (same as default)");
         console.log("  --full       Disable digest output");
-        console.log("  --manifest   Include full context manifest footer");
-        console.log("  --verbose    Print all warnings instead of summarizing");
         return {
             output: null,
         };
@@ -1404,10 +1288,6 @@ export async function runContext(args = []) {
         console.log("Options:");
         console.log("  --compact    Prefer bounded digest output (same as default)");
         console.log("  --full       Disable digest output");
-        console.log("  --manifest   Include full context manifest footer");
-        console.log("  --verbose    Print all warnings instead of summarizing");
-        console.log("  --summary-json  Print scan summary as JSON (brief only)");
-        console.log("  --no-cache   Disable brief digest cache");
         process.exitCode = 1;
         return {
             output: null,

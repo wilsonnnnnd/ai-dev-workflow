@@ -6,11 +6,17 @@ import test from "node:test";
 import { main as runCliMain } from "../bin/cli.js";
 import { runInit } from "../bin/init.js";
 import { runScan } from "../bin/scan.js";
+import * as contextModule from "../bin/context.js";
+import * as taskModule from "../bin/task.js";
+import { computeContextFreshness } from "../src/scan/index.js";
 import { createMcpServer } from "../src/mcp/server.js";
 import { MCP_CAPABILITY_TIERS, buildMcpCapabilityPolicy } from "../src/mcp/tools.js";
 import { appendLoopEvent, listRecentLoopEvents } from "../src/loop/store.js";
+import { validateRuntimeContract } from "../src/runtime/runtime-schema.js";
 import { CONTEXT_BUDGET, budgetJsonPayload, estimateTokenUnits } from "../src/runtime/context-budget.js";
 import { serializeCompactJson } from "../src/runtime/serialize.js";
+import * as compressionModule from "../src/runtime/context-compression.js";
+import { computeRelevanceScore, rankFilesForContext } from "../src/runtime/context-relevance.js";
 
 const originalCwd = process.cwd();
 
@@ -486,6 +492,75 @@ test("MCP capability policy requires explicit opt-in by tier", () => {
     assert.equal(buildMcpCapabilityPolicy({ enableWrite: true, enableTests: true }).allows("test-exec"), true);
 });
 
+test("runtime/v1 validator accepts active runtime context/task envelopes", async () => {
+    await withTempProject(async () => {
+        await withMutedConsole(() => runInit());
+        writeFile("package.json", JSON.stringify({ name: "runtime-validator-envelope", version: "0.0.0", type: "module" }, null, 4) + "\n");
+        writeFile("src/index.js", "export const value = 1;\n");
+        writeFile("task/task.md", minimalRegistry());
+        writeFile("task/T-001-core-runtime.md", minimalTask());
+
+        await withMutedConsole(() => runScan());
+
+        const runtimeContext = JSON.parse(fs.readFileSync(path.resolve(".aidw/runtime/context.json"), "utf-8"));
+        const runtimeTask = JSON.parse(fs.readFileSync(path.resolve(".aidw/runtime/task.json"), "utf-8"));
+
+        const contextValidation = validateRuntimeContract(runtimeContext);
+        const taskValidation = validateRuntimeContract(runtimeTask);
+
+        assert.equal(contextValidation.valid, true, contextValidation.errors.join("; "));
+        assert.equal(taskValidation.valid, true, taskValidation.errors.join("; "));
+    });
+});
+
+test("runtime/v1 validator rejects invalid or missing envelope fields", () => {
+    const missingEnvelope = {
+        schemaVersion: "runtime/v1",
+        generatedAt: new Date().toISOString(),
+        source: { generatedBy: "test", inputs: [] },
+    };
+
+    const badPayloadShape = {
+        schemaVersion: "runtime/v1",
+        generatedAt: new Date().toISOString(),
+        source: { generatedBy: "test", inputs: [] },
+        kind: "context",
+        payload: [],
+    };
+
+    const missingFieldResult = validateRuntimeContract(missingEnvelope);
+    const badPayloadResult = validateRuntimeContract(badPayloadShape);
+
+    assert.equal(missingFieldResult.valid, false);
+    assert.ok(missingFieldResult.errors.some((item) => item.includes("kind: missing")));
+    assert.ok(missingFieldResult.errors.some((item) => item.includes("payload: missing")));
+
+    assert.equal(badPayloadResult.valid, false);
+    assert.ok(badPayloadResult.errors.some((item) => item.includes("payload: must be an object")));
+});
+
+test("runtime/v1 validator does not accept legacy contract shape", () => {
+    const legacyContract = {
+        schemaVersion: "runtime/v1",
+        runtimeVersion: "1",
+        repoRoot: ".",
+        workset: { mode: "compact", files: [], summary: "old", text: "old" },
+        prompt: "old",
+        risks: [],
+        nextActions: [],
+        executionState: null,
+    };
+
+    const result = validateRuntimeContract(legacyContract);
+
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((item) => item.includes("runtimeVersion: legacy runtime-contract field")));
+    assert.ok(result.errors.some((item) => item.includes("repoRoot: legacy runtime-contract field")));
+    assert.ok(result.errors.some((item) => item.includes("workset: legacy runtime-contract field")));
+    assert.ok(result.errors.some((item) => item.includes("kind: missing")));
+    assert.ok(result.errors.some((item) => item.includes("payload: missing")));
+});
+
 test("CLI context/task defaults are JSON-first, bounded, and avoid full .aidw markdown injection", async () => {
     await withTempProject(async () => {
         await withMutedConsole(() => runInit());
@@ -721,4 +796,149 @@ test("README and package manifest reflect the hard slim surface", () => {
     assert.equal(pkg.bin["repo-context-kit"], "bin/cli.js");
     assert.equal(pkg.bin["repo-context-kit-mcp"], "bin/mcp.js");
     assert.ok(!pkg.files.includes("site"));
+});
+
+test("legacy markdown builders are not exported and active JSON-first exports are intact", () => {
+    // context.js: dead builders removed, active exports intact
+    assert.equal(typeof contextModule.buildWorksetContext, "function", "buildWorksetContext must remain (used by virtual-task)");
+    assert.equal(typeof contextModule.runContext, "function", "runContext must remain");
+    assert.equal(contextModule.buildNextTask, undefined, "buildNextTask was dead code and must not be exported");
+
+    // task.js: dead builders removed, active exports intact
+    assert.equal(typeof taskModule.buildTaskPrompt, "function", "buildTaskPrompt must remain (used by virtual-task)");
+    assert.equal(typeof taskModule.runTask, "function", "runTask must remain");
+    assert.equal(taskModule.buildTaskPrDescription, undefined, "buildTaskPrDescription was dead code and must not be exported");
+    assert.equal(taskModule.buildTaskChecklist, undefined, "buildTaskChecklist was dead code and must not be exported");
+});
+
+test("computeContextFreshness does not throw and returns a valid score shape (no indexes exist)", async () => {
+    // Regression: scaffoldPlanPath was undefined, causing ReferenceError on any call.
+    await withTempProject(async () => {
+        await withMutedConsole(() => runInit());
+        // No scan run — indexes do not exist. freshness should handle that gracefully.
+        let result;
+        assert.doesNotThrow(() => {
+            result = computeContextFreshness();
+        });
+        assert.equal(typeof result.score, "number");
+        assert.ok(result.score >= 0 && result.score <= 100);
+        assert.ok(typeof result.scanStale === "boolean");
+        assert.ok(Array.isArray(result.signals));
+        assert.ok(Array.isArray(result.suggestedActions));
+        // Without indexes, scanStale must be true
+        assert.equal(result.scanStale, true);
+        // scaffold_plan_outdated signal must never be triggered (path is null, feature not wired)
+        const scaffoldSignal = result.signals.find((s) => s.id === "scaffold_plan_outdated");
+        assert.equal(scaffoldSignal, undefined, "scaffold_plan_outdated must not be triggered when path is null");
+    });
+});
+
+test("computeContextFreshness returns fresh state after scan and stale state after index removal", async () => {
+    await withTempProject(async () => {
+        await withMutedConsole(() => runInit());
+        writeFile("package.json", JSON.stringify({ name: "freshness-test", version: "0.0.0", type: "module" }, null, 4) + "\n");
+        writeFile("src/main.js", "export function main() { return 1; }\n");
+        writeFile("task/task.md", minimalRegistry());
+        writeFile("task/T-001-core-runtime.md", minimalTask());
+        await withMutedConsole(() => runScan());
+
+        // After scan: freshness check must not throw
+        let fresh;
+        assert.doesNotThrow(() => {
+            fresh = computeContextFreshness();
+        });
+        assert.equal(typeof fresh.score, "number");
+        assert.ok(fresh.score >= 0 && fresh.score <= 100);
+        // scaffold_plan_outdated must never appear as triggered
+        const scaffoldSignal = fresh.signals.find((s) => s.id === "scaffold_plan_outdated");
+        assert.equal(scaffoldSignal, undefined, "scaffold_plan_outdated must not be triggered after scan");
+
+        // Remove the summary index to force stale state
+        const summaryPath = path.join(process.cwd(), ".aidw/index/summary.json");
+        if (fs.existsSync(summaryPath)) {
+            fs.unlinkSync(summaryPath);
+        }
+        let stale;
+        assert.doesNotThrow(() => {
+            stale = computeContextFreshness();
+        });
+        assert.equal(stale.scanStale, true, "scanStale must be true when summary.json is missing");
+    });
+});
+
+test("context-compression does not export computeRelevanceScore or filterRelevantFiles (dead duplicates removed)", () => {
+    assert.equal(compressionModule.computeRelevanceScore, undefined,
+        "computeRelevanceScore was a dead duplicate with incompatible signature and must not be exported from context-compression");
+    assert.equal(compressionModule.filterRelevantFiles, undefined,
+        "filterRelevantFiles was a dead duplicate with incompatible argument order and must not be exported from context-compression");
+    // Active exports must remain
+    assert.equal(typeof compressionModule.computeContextHash, "function");
+    assert.equal(typeof compressionModule.scoreContextCacheability, "function");
+    assert.equal(typeof compressionModule.detectSemanticDuplication, "function");
+    assert.equal(typeof compressionModule.normalizeRuleText, "function");
+    assert.equal(typeof compressionModule.buildEscalationDecision, "function");
+    assert.equal(typeof compressionModule.buildContextCompressionMetrics, "function");
+});
+
+test("computeRelevanceScore from context-relevance is deterministic (same inputs produce same output)", () => {
+    const context = { allFilePaths: ["src/a.js", "src/b.js"], recentFiles: [] };
+    const r1 = computeRelevanceScore("src/a.js", "src/b.js", context);
+    const r2 = computeRelevanceScore("src/a.js", "src/b.js", context);
+    assert.equal(typeof r1.score, "number");
+    assert.equal(r1.score, r2.score, "score must be deterministic");
+    assert.deepEqual(r1.reasons, r2.reasons, "reasons must be deterministic");
+    assert.equal(r1.distance, r2.distance, "distance must be deterministic");
+});
+
+test("rankFilesForContext produces stable order for equal-score files", () => {
+    const context = { allFilePaths: [], recentFiles: [] };
+    const files = ["src/z.js", "src/a.js", "src/m.js"];
+    const run1 = rankFilesForContext("src/source.js", [...files], context).map((r) => r.file);
+    const run2 = rankFilesForContext("src/source.js", [...files.slice().reverse()], context).map((r) => r.file);
+    assert.deepEqual(run1, run2, "equal-score files must be sorted by path as stable tie-breaker");
+});
+
+test("inert flags removed: runContext does not parse --manifest, --verbose, --raw-loop, --summary-json, --no-cache", async () => {
+    // These flags were parsed but never passed to any active JSON-first output path.
+    // Passing them now must produce the same output as passing none.
+    // We confirm by checking that context help no longer advertises them.
+    const resultPlain = await contextModule.runContext(["help"]);
+    assert.equal(resultPlain.output, null); // help returns null output by spec
+
+    // Help text must NOT advertise the removed dead flags
+    const consoleLogs = [];
+    const origLog = console.log;
+    console.log = (...args) => consoleLogs.push(args.join(" "));
+    try {
+        await contextModule.runContext(["help"]);
+    } finally {
+        console.log = origLog;
+    }
+    const helpText = consoleLogs.join("\n");
+    assert.ok(!helpText.includes("--manifest"), "--manifest must not appear in context help (dead flag)");
+    assert.ok(!helpText.includes("--verbose"), "--verbose must not appear in context help (dead flag)");
+    assert.ok(!helpText.includes("--summary-json"), "--summary-json must not appear in context help (dead flag)");
+    assert.ok(!helpText.includes("--no-cache"), "--no-cache must not appear in context help (dead flag)");
+    // Active flags must remain in help
+    assert.ok(helpText.includes("--compact"), "--compact must remain in context help (active)");
+    assert.ok(helpText.includes("--full"), "--full must remain in context help (active)");
+});
+
+test("inert flags removed: runTask does not advertise --compact, --full-detail, --full-workset in help", async () => {
+    const consoleLogs = [];
+    const origLog = console.log;
+    console.log = (...args) => consoleLogs.push(args.join(" "));
+    try {
+        await taskModule.runTask(["help"]);
+    } finally {
+        console.log = origLog;
+    }
+    const helpText = consoleLogs.join("\n");
+    assert.ok(!helpText.includes("--compact"), "--compact must not appear in task help (dead flag)");
+    assert.ok(!helpText.includes("--full-detail"), "--full-detail must not appear in task help (dead flag)");
+    assert.ok(!helpText.includes("--full-workset"), "--full-workset must not appear in task help (dead flag)");
+    assert.ok(!helpText.includes("--manifest"), "--manifest must not appear in task help (dead flag)");
+    assert.ok(!helpText.includes("--verbose"), "--verbose must not appear in task help (dead flag)");
+    // Active flag must remain
+    assert.ok(helpText.includes("--deep"), "--deep must remain in task help (active)");
 });

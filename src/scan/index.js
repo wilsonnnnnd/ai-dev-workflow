@@ -721,7 +721,9 @@ export function computeContextFreshness(options = {}) {
     const snapshotsStat = fs.existsSync(snapshotsPath) ? fs.statSync(snapshotsPath) : null;
     const snapshotsMissing = !snapshotsStat || !snapshotsStat.isFile() || snapshotsStat.size === 0;
 
-    const scaffoldPlanOutdated = fs.existsSync(scaffoldPlanPath) ? (() => {
+    // scaffoldPlanPath is not yet wired to a real output path; signal is always non-triggered.
+    const scaffoldPlanPath = null;
+    const scaffoldPlanOutdated = scaffoldPlanPath != null && fs.existsSync(scaffoldPlanPath) ? (() => {
         try {
             const parsed = JSON.parse(fs.readFileSync(scaffoldPlanPath, "utf-8"));
             return !isPlainObject(parsed);

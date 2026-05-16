@@ -11,6 +11,7 @@
 
 import { readJson } from "../scan/fs-utils.js";
 import { CONTEXT_INDEX_FILES_PATH, CONTEXT_INDEX_SYMBOLS_PATH } from "../scan/constants.js";
+import { stablePathCompare } from "./stable-sort.js";
 
 const SCORE_WEIGHTS = {
     directImport: 100,
@@ -116,7 +117,7 @@ export function rankFilesForContext(sourceFile, allFiles = [], context = {}) {
             file,
             ...scoreContextRelevance(sourceFile, file, context),
         }))
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => b.score - a.score || stablePathCompare(a.file, b.file));
 
     return ranked;
 }

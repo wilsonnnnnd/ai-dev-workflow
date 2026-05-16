@@ -21,7 +21,7 @@ Enable via:
   - `context brief`
   - `context next-task`
   - `context workset <taskId>` (default digest)
-  - `task prompt <taskId> --compact`
+  - `task prompt <taskId>`
 
 ### Exception Budget (auto-upgrade)
 
@@ -35,19 +35,16 @@ Auto-upgrade only when signals indicate higher decision risk, for example:
 
 Use only when explicitly requested or review-heavy work needs extra context:
 
-- user requests `--full-*`, `--deep`, `--manifest`, `--verbose`
+- user requests `--full`, `--deep`
 - or `--budget full`
 
 ## Upgrade Rules (Automatic)
 
 When `--budget auto` is enabled:
 
-- **Explicit flags win.** If a user passes `--full`, `--digest`, `--deep`, `--full-detail`, `--full-workset`, `--manifest`, or `--verbose`, do not downgrade.
+- **Explicit flags win.** If a user passes `--full`, `--digest`, or `--deep`, do not downgrade.
 - Upgrade should stay bounded (never dump full generated indexes).
-- Prefer upgrades that improve decision quality:
-  - show clearer warnings (`--verbose`)
-  - include more relevant context (`--full-detail`, `--full-workset`)
-  - expand bounded context only when needed (`--deep`)
+- Prefer upgrades that expand bounded context when needed (`--deep`).
 
 ## Budget Decision Block
 

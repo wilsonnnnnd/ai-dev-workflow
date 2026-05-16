@@ -36,37 +36,6 @@ export function scoreContextCacheability(context, isStableConfig = false) {
     return Math.max(0, Math.min(100, score));
 }
 
-export function computeRelevanceScore(sourceFile, targetFile, context = {}) {
-    let score = 0;
-    
-    // Direct import reference
-    if (context.imports && context.imports.includes(targetFile)) {
-        score += 50;
-    }
-    
-    // Same feature/module
-    if (context.sameFeature) {
-        score += 30;
-    }
-    
-    // Recently modified
-    if (context.recentlyModified) {
-        score += 15;
-    }
-    
-    // Dependency distance
-    if (context.dependencyDistance !== undefined && context.dependencyDistance < 3) {
-        score += (3 - context.dependencyDistance) * 10;
-    }
-    
-    // Shared symbols/exports
-    if (context.sharedSymbols && context.sharedSymbols > 0) {
-        score += Math.min(context.sharedSymbols * 5, 20);
-    }
-    
-    return Math.min(100, score);
-}
-
 export function detectSemanticDuplication(rules) {
     if (!Array.isArray(rules) || rules.length === 0) {
         return { duplicates: [], density: 0 };
@@ -121,18 +90,6 @@ export function buildEscalationDecision(riskScore, testStatus, hasRecentFailure)
         reason_codes: reasons,
         context_hash_required: !shouldEscalate,
     };
-}
-
-export function filterRelevantFiles(allFiles, sourceFile, relevanceThreshold = 0.5) {
-    const scored = allFiles.map((file) => ({
-        file,
-        score: computeRelevanceScore(sourceFile, file),
-    }));
-    
-    return scored
-        .filter((item) => item.score >= relevanceThreshold * 100)
-        .sort((a, b) => b.score - a.score)
-        .map((item) => item.file);
 }
 
 export function buildContextCompressionMetrics(context) {
